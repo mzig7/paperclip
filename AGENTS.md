@@ -6,6 +6,7 @@ Guidance for human and AI contributors working in this repository.
 
 Paperclip is a control plane for AI-agent companies.
 The current implementation target is V1 and is defined in `doc/SPEC-implementation.md`.
+This fork is customized for Dev Studio orchestration and should remain easy to rebase with upstream.
 
 ## 2. Read This First
 
@@ -16,6 +17,7 @@ Before making changes, read in this order:
 3. `doc/SPEC-implementation.md`
 4. `doc/DEVELOPING.md`
 5. `doc/DATABASE.md`
+6. `doc/DEPLOYMENT-MODES.md`
 
 `doc/SPEC.md` is long-horizon product context.
 `doc/SPEC-implementation.md` is the concrete V1 build contract.
@@ -33,7 +35,7 @@ Before making changes, read in this order:
 
 ## 4. Dev Setup (Auto DB)
 
-Use embedded PGlite in dev by leaving `DATABASE_URL` unset.
+Use embedded Postgres in dev by leaving `DATABASE_URL` unset.
 
 ```sh
 pnpm install
@@ -55,8 +57,27 @@ curl http://localhost:3100/api/companies
 Reset local dev DB:
 
 ```sh
-rm -rf data/pglite
+rm -rf ~/.paperclip/instances/default/db
 pnpm dev
+```
+
+## 4.1 Fork Sync Workflow
+
+Use this standard update flow to keep fork drift low:
+
+```sh
+git fetch upstream
+git checkout main
+git rebase upstream/master
+git push origin main
+```
+
+One-time setup:
+
+```sh
+git remote add upstream git@github.com:paperclipai/paperclip.git
+git fetch upstream
+git remote -v
 ```
 
 ## 5. Core Engineering Rules
@@ -81,7 +102,13 @@ If you change schema/API behavior, update all impacted layers:
 4. Do not replace strategic docs wholesale unless asked.
 Prefer additive updates. Keep `doc/SPEC.md` and `doc/SPEC-implementation.md` aligned.
 
-5. Keep plan docs dated and centralized.
+5. Keep fork customizations minimal and isolated.
+Prefer adapter/config-level extensions over broad orchestration rewrites. New behavior should be opt-in and backward-compatible when possible.
+
+6. Heartbeat model split policy for Dev Studio.
+Lightweight local models are acceptable for heartbeat triage/routing. Heavy implementation tasks should run on stronger models. Keep triage/execution decisions visible in run logs and activity trails.
+
+7. Keep plan docs dated and centralized.
 New plan documents belong in `doc/plans/` and should use `YYYY-MM-DD-slug.md` filenames.
 
 ## 6. Database Change Workflow

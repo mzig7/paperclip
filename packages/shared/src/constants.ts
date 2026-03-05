@@ -307,6 +307,12 @@ export const WAKEUP_REQUEST_STATUSES = [
 ] as const;
 export type WakeupRequestStatus = (typeof WAKEUP_REQUEST_STATUSES)[number];
 
+export const HEARTBEAT_GATE_MODES = ["off", "shadow", "enforce"] as const;
+export type HeartbeatGateMode = (typeof HEARTBEAT_GATE_MODES)[number];
+
+export const HEARTBEAT_GATE_DECISIONS = ["run_expensive_now", "not_now"] as const;
+export type HeartbeatGateDecision = (typeof HEARTBEAT_GATE_DECISIONS)[number];
+
 export const HEARTBEAT_RUN_STATUSES = [
   "queued",
   "running",

@@ -2104,6 +2104,23 @@ export function agentRoutes(db: Db) {
     res.json(runs);
   });
 
+  router.get("/companies/:companyId/wakeup-requests", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+
+    const agentIdRaw = req.query.agentId;
+    const agentId = typeof agentIdRaw === "string" && agentIdRaw.trim().length > 0
+      ? agentIdRaw.trim()
+      : undefined;
+
+    const limitRaw = req.query.limit;
+    const limitParsed = typeof limitRaw === "string" ? Number.parseInt(limitRaw, 10) : NaN;
+    const limit = Number.isFinite(limitParsed) ? Math.max(1, Math.min(limitParsed, 1000)) : 200;
+
+    const wakeups = await heartbeat.listWakeupRequests(companyId, agentId, limit);
+    res.json(wakeups);
+  });
+
   router.get("/companies/:companyId/live-runs", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);

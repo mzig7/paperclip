@@ -330,6 +330,20 @@
       "when": 1774960197878,
       "tag": "0046_smooth_sentinels",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1772748000000,
+      "tag": "0047_heartbeat_gate_and_wakeup_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1772751600000,
+      "tag": "0048_heartbeat_gate_model_telemetry",
+      "breakpoints": true
     }
   ]
 }

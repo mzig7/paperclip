@@ -17,5 +17,6 @@ Core fields:
 - headers (object, optional): request headers
 - payloadTemplate (object, optional): JSON payload template
 - timeoutSec (number, optional): request timeout in seconds
+- timeoutMs (number, optional): legacy timeout in milliseconds (fallback while migrating)
 `,
 };
