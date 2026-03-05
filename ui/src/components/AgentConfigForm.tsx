@@ -817,7 +817,13 @@ function AdapterEnvironmentResult({ result }: { result: AdapterEnvironmentTestRe
 
 /* ---- Internal sub-components ---- */
 
-const ENABLED_ADAPTER_TYPES = new Set(["claude_local", "codex_local"]);
+const ENABLED_ADAPTER_TYPES = new Set([
+  "claude_local",
+  "codex_local",
+  "openclaw",
+  "process",
+  "http",
+]);
 
 /** Display list includes all real adapter types plus UI-only coming-soon entries. */
 const ADAPTER_DISPLAY_LIST: { value: string; label: string; comingSoon: boolean }[] = [

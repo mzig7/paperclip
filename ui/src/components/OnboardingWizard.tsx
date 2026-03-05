@@ -504,8 +504,7 @@ export function OnboardingWizard() {
                           value: "openclaw" as const,
                           label: "OpenClaw",
                           icon: Bot,
-                          desc: "Notify OpenClaw webhook",
-                          comingSoon: true
+                          desc: "Notify OpenClaw webhook"
                         },
                         {
                           value: "cursor" as const,
@@ -518,15 +517,13 @@ export function OnboardingWizard() {
                           value: "process" as const,
                           label: "Shell Command",
                           icon: Terminal,
-                          desc: "Run a process",
-                          comingSoon: true
+                          desc: "Run a process"
                         },
                         {
                           value: "http" as const,
                           label: "HTTP Webhook",
                           icon: Globe,
-                          desc: "Call an endpoint",
-                          comingSoon: true
+                          desc: "Call an endpoint"
                         }
                       ].map((opt) => (
                         <button
