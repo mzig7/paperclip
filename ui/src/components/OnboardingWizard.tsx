@@ -773,6 +773,24 @@ export function OnboardingWizard() {
                           icon: Code,
                           desc: "Local Codex agent",
                           recommended: true
+                        },
+                        {
+                          value: "openclaw" as const,
+                          label: "OpenClaw",
+                          icon: Bot,
+                          desc: "Notify OpenClaw webhook"
+                        },
+                        {
+                          value: "process" as const,
+                          label: "Shell Command",
+                          icon: Terminal,
+                          desc: "Run a process"
+                        },
+                        {
+                          value: "http" as const,
+                          label: "HTTP Webhook",
+                          icon: Globe,
+                          desc: "Call an endpoint"
                         }
                       ].map((opt) => (
                         <button
