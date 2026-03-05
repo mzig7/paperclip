@@ -181,21 +181,42 @@ async function invokeOpenAiGate(input: {
     if (input.apiKey) {
       headers.Authorization = `Bearer ${input.apiKey}`;
     }
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
+    const messages = [
+      { role: "system", content: input.systemPrompt },
+      { role: "user", content: input.userPrompt },
+    ];
+    const sendCompletion = async (responseFormat: "json_object" | "text") => {
+      const body: Record<string, unknown> = {
         model: input.model,
         temperature: 0,
         max_tokens: 120,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: input.systemPrompt },
-          { role: "user", content: input.userPrompt },
-        ],
-      }),
-      signal: controller.signal,
-    });
+        messages,
+      };
+      if (responseFormat === "json_object") {
+        body.response_format = { type: "json_object" };
+      } else {
+        body.response_format = { type: "text" };
+      }
+      return fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    };
+
+    let response = await sendCompletion("json_object");
+    if (!response.ok && response.status === 400) {
+      const errorText = await response.text();
+      const unsupportedJsonObject =
+        errorText.includes("response_format.type") &&
+        (errorText.includes("json_schema") || errorText.includes("text"));
+      if (unsupportedJsonObject) {
+        response = await sendCompletion("text");
+      } else {
+        throw new Error(`openai_http_${response.status}`);
+      }
+    }
 
     if (!response.ok) {
       throw new Error(`openai_http_${response.status}`);
