@@ -25,6 +25,9 @@ export interface HeartbeatGateInput {
   commentId: string | null;
   taskKey: string | null;
   activeRunCount: number;
+  assignedOpenIssueCount: number;
+  deferredWakeCount: number;
+  newIssueCommentCount: number;
   latestRunStatus: string | null;
   latestRunCreatedAt: Date | null;
   latestRunFinishedAt: Date | null;
@@ -269,6 +272,9 @@ async function invokeModelGate(input: {
         commentId: input.pulse.commentId,
         taskKey: input.pulse.taskKey,
         activeRunCount: input.pulse.activeRunCount,
+        assignedOpenIssueCount: input.pulse.assignedOpenIssueCount,
+        deferredWakeCount: input.pulse.deferredWakeCount,
+        newIssueCommentCount: input.pulse.newIssueCommentCount,
         latestRunStatus: input.pulse.latestRunStatus,
         latestRunCreatedAt: input.pulse.latestRunCreatedAt?.toISOString() ?? null,
         latestRunFinishedAt: input.pulse.latestRunFinishedAt?.toISOString() ?? null,

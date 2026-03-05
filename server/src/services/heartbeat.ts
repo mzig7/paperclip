@@ -13,6 +13,8 @@ import {
   companies,
   heartbeatRunEvents,
   heartbeatRuns,
+  costEvents,
+  issueComments,
   issues,
   projects,
   projectWorkspaces,
@@ -182,9 +184,11 @@ const heartbeatRunListColumns = {
   updatedAt: heartbeatRuns.updatedAt,
 } as const;
 const WAKEUP_IDEMPOTENCY_UNIQUE_IDX = "agent_wakeup_requests_company_agent_idempotency_idx";
+const OPEN_ISSUE_STATUSES = ["todo", "in_progress", "blocked"];
 
 type GateDecisionForWrite = HeartbeatGateDecisionValue | null;
 type GateModeForWrite = HeartbeatGateMode | null;
+type HeartbeatWakeSource = "timer" | "assignment" | "on_demand" | "automation";
 
 interface GateTelemetryPatch {
   gateDecision: GateDecisionForWrite;
@@ -236,6 +240,45 @@ export function detectBudgetHardStop(input: {
         : "Blocked by budget hard-stop (company budget exhausted)";
 
   return { reasonCode, message };
+}
+
+export interface DeterministicHeartbeatGateInput {
+  source: HeartbeatWakeSource;
+  runningOrQueuedRunCount: number;
+  assignedOpenIssueCount: number;
+  deferredWakeCount: number;
+  newIssueCommentCount: number;
+}
+
+export function deriveDeterministicHeartbeatGateDecision(
+  input: DeterministicHeartbeatGateInput,
+): { decision: HeartbeatGateDecisionValue; reasonCode: string } | null {
+  if (input.source !== "timer") {
+    return {
+      decision: "run_expensive_now",
+      reasonCode: "heartbeat_gate.signal.non_timer_source",
+    };
+  }
+
+  if (input.runningOrQueuedRunCount > 0) {
+    return {
+      decision: "not_now",
+      reasonCode: "heartbeat_gate.signal.inflight_run",
+    };
+  }
+
+  const hasPendingWork =
+    input.assignedOpenIssueCount > 0 ||
+    input.deferredWakeCount > 0 ||
+    input.newIssueCommentCount > 0;
+  if (!hasPendingWork) {
+    return {
+      decision: "not_now",
+      reasonCode: "heartbeat_gate.signal.no_pending_work",
+    };
+  }
+
+  return null;
 }
 
 function appendExcerpt(prev: string, chunk: string) {
@@ -1770,6 +1813,76 @@ export function heartbeatService(db: Db) {
     return Number(count ?? 0);
   }
 
+  async function collectDeterministicGateSignals(input: {
+    companyId: string;
+    agentId: string;
+    latestRunFinishedAt: Date | null;
+  }) {
+    const [runsInFlight, assignedOpenIssues, deferredWakeups, newIssueComments] =
+      await Promise.all([
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(heartbeatRuns)
+          .where(
+            and(
+              eq(heartbeatRuns.agentId, input.agentId),
+              inArray(heartbeatRuns.status, ["queued", "running"]),
+            ),
+          )
+          .then((rows) => Number(rows[0]?.count ?? 0)),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(issues)
+          .where(
+            and(
+              eq(issues.companyId, input.companyId),
+              eq(issues.assigneeAgentId, input.agentId),
+              inArray(issues.status, OPEN_ISSUE_STATUSES),
+            ),
+          )
+          .then((rows) => Number(rows[0]?.count ?? 0)),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(agentWakeupRequests)
+          .where(
+            and(
+              eq(agentWakeupRequests.companyId, input.companyId),
+              eq(agentWakeupRequests.agentId, input.agentId),
+              eq(agentWakeupRequests.status, "deferred_issue_execution"),
+            ),
+          )
+          .then((rows) => Number(rows[0]?.count ?? 0)),
+        input.latestRunFinishedAt
+          ? db
+              .select({ count: sql<number>`count(*)` })
+              .from(issueComments)
+              .innerJoin(
+                issues,
+                and(
+                  eq(issues.id, issueComments.issueId),
+                  eq(issues.companyId, input.companyId),
+                  eq(issues.assigneeAgentId, input.agentId),
+                  inArray(issues.status, OPEN_ISSUE_STATUSES),
+                ),
+              )
+              .where(
+                and(
+                  eq(issueComments.companyId, input.companyId),
+                  gt(issueComments.createdAt, input.latestRunFinishedAt),
+                ),
+              )
+              .then((rows) => Number(rows[0]?.count ?? 0))
+          : Promise.resolve(0),
+      ]);
+
+    return {
+      runningOrQueuedRunCount: runsInFlight,
+      assignedOpenIssueCount: assignedOpenIssues,
+      deferredWakeCount: deferredWakeups,
+      newIssueCommentCount: newIssueComments,
+    };
+  }
+
   async function getWakeupRequestByIdempotencyKey(
     companyId: string,
     agentId: string,
@@ -1839,10 +1952,28 @@ export function heartbeatService(db: Db) {
       };
     }
 
-    const [latestRun, activeRunCount] = await Promise.all([
-      getLatestRunForAgent(input.agent.id),
-      countRunningRunsForAgent(input.agent.id),
-    ]);
+    const latestRun = await getLatestRunForAgent(input.agent.id);
+    const deterministicSignals = await collectDeterministicGateSignals({
+      companyId: input.agent.companyId,
+      agentId: input.agent.id,
+      latestRunFinishedAt: latestRun?.finishedAt ?? null,
+    });
+    const deterministicDecision = deriveDeterministicHeartbeatGateDecision({
+      source: input.source ?? "on_demand",
+      ...deterministicSignals,
+    });
+    if (deterministicDecision) {
+      return {
+        mode: config.mode,
+        decision: deterministicDecision.decision,
+        reasonCode: deterministicDecision.reasonCode,
+        nextCheckHintSec: null,
+        evaluatedAt: new Date(),
+        gateModel: null,
+        gateFailureCode: null,
+        gateUsedDefaultModel: false,
+      };
+    }
 
     const evaluation = await evaluateHeartbeatGate(config, {
       source: input.source ?? "on_demand",
@@ -1851,7 +1982,10 @@ export function heartbeatService(db: Db) {
       issueId: input.issueId,
       commentId: input.commentId,
       taskKey: input.taskKey,
-      activeRunCount,
+      activeRunCount: deterministicSignals.runningOrQueuedRunCount,
+      assignedOpenIssueCount: deterministicSignals.assignedOpenIssueCount,
+      deferredWakeCount: deterministicSignals.deferredWakeCount,
+      newIssueCommentCount: deterministicSignals.newIssueCommentCount,
       latestRunStatus: latestRun?.status ?? null,
       latestRunCreatedAt: latestRun?.createdAt ?? null,
       latestRunFinishedAt: latestRun?.finishedAt ?? null,
