@@ -11,6 +11,7 @@ export type HeartbeatGateDecisionValue = (typeof HEARTBEAT_GATE_DECISIONS)[numbe
 export interface HeartbeatGateConfig {
   mode: HeartbeatGateMode;
   model: string | null;
+  baseUrl: string | null;
   timeoutMs: number;
   maxInputChars: number;
   maxNextCheckHintSec: number;
@@ -98,6 +99,20 @@ function truncateInput(value: string, maxChars: number) {
 
 type GateProvider = "openai" | "claude";
 
+function normalizeOpenAiBaseUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  if (trimmed.toLowerCase().endsWith("/v1")) return trimmed;
+  return `${trimmed}/v1`;
+}
+
+function resolveOpenAiBaseUrl(config: HeartbeatGateConfig): string | null {
+  const explicit = toNonEmptyString(config.baseUrl);
+  if (explicit) return normalizeOpenAiBaseUrl(explicit);
+  const env = toNonEmptyString(process.env.OPENAI_BASE_URL);
+  if (env) return normalizeOpenAiBaseUrl(env);
+  return null;
+}
+
 function resolveGlobalProvider(): GateProvider | null {
   const config = readConfigFile();
   const provider = config?.llm?.provider;
@@ -117,11 +132,21 @@ function resolveProviderApiKey(provider: GateProvider): string | null {
   return toNonEmptyString(config.llm.apiKey);
 }
 
-function resolveEffectiveModel(config: HeartbeatGateConfig): {
+function resolveEffectiveModel(
+  config: HeartbeatGateConfig,
+  opts?: { openAiBaseUrl?: string | null },
+): {
   model: string | null;
   provider: GateProvider | null;
   usedDefaultModel: boolean;
 } {
+  if (opts?.openAiBaseUrl) {
+    return {
+      model: config.model ?? "gpt-4o-mini",
+      provider: "openai",
+      usedDefaultModel: !config.model,
+    };
+  }
   const provider = resolveGlobalProvider();
   if (!provider) {
     return { model: null, provider: null, usedDefaultModel: false };
@@ -136,7 +161,8 @@ function resolveEffectiveModel(config: HeartbeatGateConfig): {
 }
 
 async function invokeOpenAiGate(input: {
-  apiKey: string;
+  apiKey?: string | null;
+  baseUrl?: string | null;
   model: string;
   systemPrompt: string;
   userPrompt: string;
@@ -145,12 +171,16 @@ async function invokeOpenAiGate(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const endpoint = `${input.baseUrl ?? "https://api.openai.com/v1"}/chat/completions`;
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    if (input.apiKey) {
+      headers.Authorization = `Bearer ${input.apiKey}`;
+    }
+    const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.apiKey}`,
-        "content-type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         model: input.model,
         temperature: 0,
@@ -222,8 +252,9 @@ async function invokeClaudeGate(input: {
 
 async function invokeModelGate(input: {
   provider: GateProvider;
-  apiKey: string;
+  apiKey?: string | null;
   model: string;
+  baseUrl?: string | null;
   timeoutMs: number;
   maxInputChars: number;
   pulse: HeartbeatGateInput;
@@ -257,6 +288,7 @@ async function invokeModelGate(input: {
   if (input.provider === "openai") {
     return invokeOpenAiGate({
       apiKey: input.apiKey,
+      baseUrl: input.baseUrl,
       model: input.model,
       systemPrompt,
       userPrompt,
@@ -264,7 +296,7 @@ async function invokeModelGate(input: {
     });
   }
   return invokeClaudeGate({
-    apiKey: input.apiKey,
+    apiKey: input.apiKey as string,
     model: input.model,
     systemPrompt,
     userPrompt,
@@ -283,6 +315,7 @@ export function parseHeartbeatGateConfig(runtimeConfigRaw: unknown): HeartbeatGa
   return {
     mode,
     model: toNonEmptyString(gate.model),
+    baseUrl: toNonEmptyString(gate.baseUrl),
     timeoutMs: clampInt(gate.timeoutMs, 1200, 250, 10_000),
     maxInputChars: clampInt(gate.maxInputChars, 2000, 128, 16_000),
     maxNextCheckHintSec: clampInt(gate.maxNextCheckHintSec, 300, 1, 3600),
@@ -332,7 +365,8 @@ export async function evaluateHeartbeatGate(
     };
   }
 
-  const resolved = resolveEffectiveModel(config);
+  const openAiBaseUrl = resolveOpenAiBaseUrl(config);
+  const resolved = resolveEffectiveModel(config, { openAiBaseUrl });
   if (!resolved.provider || !resolved.model) {
     return {
       mode: config.mode,
@@ -347,7 +381,8 @@ export async function evaluateHeartbeatGate(
   }
 
   const apiKey = resolveProviderApiKey(resolved.provider);
-  if (!apiKey) {
+  const allowMissingApiKey = resolved.provider === "openai" && Boolean(openAiBaseUrl);
+  if (!apiKey && !allowMissingApiKey) {
     return {
       mode: config.mode,
       decision: "run_expensive_now",
@@ -366,6 +401,7 @@ export async function evaluateHeartbeatGate(
       provider: resolved.provider,
       apiKey,
       model: resolved.model,
+      baseUrl: openAiBaseUrl,
       timeoutMs: config.timeoutMs,
       maxInputChars: config.maxInputChars,
       pulse: input,
