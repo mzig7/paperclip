@@ -14,6 +14,7 @@ function baseConfig(overrides?: Partial<ReturnType<typeof parseHeartbeatGateConf
   return {
     mode: "enforce" as const,
     model: null,
+    baseUrl: null,
     timeoutMs: 1200,
     maxInputChars: 2000,
     maxNextCheckHintSec: 300,
@@ -126,6 +127,45 @@ describe("heartbeat gate model evaluation", () => {
     expect(result.decision).toBe("run_expensive_now");
     expect(result.gateModel).toBe("gpt-4o-mini");
     expect(result.gateUsedDefaultModel).toBe(true);
+  });
+
+  it("supports OpenAI-compatible baseUrl without API key (LM Studio)", async () => {
+    readConfigFileMock.mockReturnValue(null);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  decision: "not_now",
+                  reason_code: "quiet_local",
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await evaluateHeartbeatGate(
+      baseConfig({
+        model: "qwen3.5:4b",
+        baseUrl: "http://localhost:1234",
+      }),
+      baseInput(),
+    );
+
+    expect(result.decision).toBe("not_now");
+    expect(result.reasonCode).toBe("quiet_local");
+    expect(result.gateModel).toBe("qwen3.5:4b");
+    expect(result.gateFailureCode).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:1234/v1/chat/completions");
+    const headers = (fetchMock.mock.calls[0]?.[1] as { headers?: Record<string, string> })?.headers ?? {};
+    expect(headers.Authorization).toBeUndefined();
   });
 
   it("fails open with model_unresolved when provider cannot be resolved", async () => {
