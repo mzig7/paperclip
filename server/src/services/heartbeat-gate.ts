@@ -185,7 +185,7 @@ async function invokeOpenAiGate(input: {
       { role: "system", content: input.systemPrompt },
       { role: "user", content: input.userPrompt },
     ];
-    const sendCompletion = async (responseFormat: "json_object" | "text") => {
+    const sendCompletion = async (responseFormat: "json_object" | "text" | null) => {
       const body: Record<string, unknown> = {
         model: input.model,
         temperature: 0,
@@ -194,7 +194,7 @@ async function invokeOpenAiGate(input: {
       };
       if (responseFormat === "json_object") {
         body.response_format = { type: "json_object" };
-      } else {
+      } else if (responseFormat === "text") {
         body.response_format = { type: "text" };
       }
       return fetch(endpoint, {
@@ -205,14 +205,24 @@ async function invokeOpenAiGate(input: {
       });
     };
 
+    const isUnsupportedResponseFormat = (value: string) => {
+      const text = value.toLowerCase();
+      return text.includes("response_format") && (text.includes("json_schema") || text.includes("text"));
+    };
+
     let response = await sendCompletion("json_object");
     if (!response.ok && response.status === 400) {
       const errorText = await response.text();
-      const unsupportedJsonObject =
-        errorText.includes("response_format.type") &&
-        (errorText.includes("json_schema") || errorText.includes("text"));
-      if (unsupportedJsonObject) {
+      if (isUnsupportedResponseFormat(errorText)) {
         response = await sendCompletion("text");
+        if (!response.ok && response.status === 400) {
+          const textFormatError = await response.text();
+          if (isUnsupportedResponseFormat(textFormatError)) {
+            response = await sendCompletion(null);
+          } else {
+            throw new Error(`openai_http_${response.status}`);
+          }
+        }
       } else {
         throw new Error(`openai_http_${response.status}`);
       }

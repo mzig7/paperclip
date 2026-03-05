@@ -223,6 +223,70 @@ describe("heartbeat gate model evaluation", () => {
     expect(secondBody.response_format?.type).toBe("text");
   });
 
+  it("falls back to no response_format when provider rejects text response_format", async () => {
+    readConfigFileMock.mockReturnValue(null);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "'response_format.type' must be 'json_schema' or 'text'",
+          }),
+          { status: 400 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "'response_format.type' must be 'json_schema' or 'text'",
+          }),
+          { status: 400 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    decision: "not_now",
+                    reason_code: "quiet_local",
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await evaluateHeartbeatGate(
+      baseConfig({
+        model: "qwen3.5-4b",
+        baseUrl: "http://localhost:1234",
+      }),
+      baseInput(),
+    );
+
+    expect(result.decision).toBe("not_now");
+    expect(result.reasonCode).toBe("quiet_local");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const firstBody = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as { body?: string })?.body ?? "{}")) as {
+      response_format?: { type?: string };
+    };
+    const secondBody = JSON.parse(String((fetchMock.mock.calls[1]?.[1] as { body?: string })?.body ?? "{}")) as {
+      response_format?: { type?: string };
+    };
+    const thirdBody = JSON.parse(String((fetchMock.mock.calls[2]?.[1] as { body?: string })?.body ?? "{}")) as {
+      response_format?: { type?: string };
+    };
+    expect(firstBody.response_format?.type).toBe("json_object");
+    expect(secondBody.response_format?.type).toBe("text");
+    expect(thirdBody.response_format).toBeUndefined();
+  });
+
   it("fails open with model_unresolved when provider cannot be resolved", async () => {
     readConfigFileMock.mockReturnValue(null);
     const fetchMock = vi.fn();
