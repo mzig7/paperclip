@@ -429,6 +429,11 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     if (isCreate) {
       set!({
         heartbeatGateUseSeparateModel: enabled,
+        heartbeatGateMode: enabled
+          ? val!.heartbeatGateMode === "off"
+            ? "shadow"
+            : val!.heartbeatGateMode
+          : "off",
         ...(!enabled
           ? {
               heartbeatGateModel: "",
@@ -440,10 +445,15 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     }
 
     mark("heartbeatGate", "useSeparateModel", enabled);
+    mark(
+      "heartbeatGate",
+      "mode",
+      enabled ? (heartbeatGateMode === "off" ? "shadow" : heartbeatGateMode) : "off",
+    );
     if (!enabled) {
       const nextGate = buildHeartbeatGateRuntimeConfig(
         {
-          heartbeatGateMode,
+          heartbeatGateMode: "off",
           heartbeatGateUseSeparateModel: false,
           heartbeatGateModel: "",
           heartbeatGateBaseUrl: "",
@@ -1043,21 +1053,20 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                   disabled={isCreate}
                 />
               </Field>
-              <Field label="Heartbeat gate mode" hint={help.heartbeatGateMode}>
-                <HeartbeatGateModeDropdown
-                  value={heartbeatGateMode}
-                  onChange={updateHeartbeatGateMode}
-                />
-              </Field>
               <ToggleField
-                label="Use separate heartbeat model"
+                label="Use local heartbeat model"
                 hint={help.heartbeatGateSeparateModel}
                 checked={heartbeatGateUseSeparateModel}
                 onChange={(v) => updateHeartbeatGateSeparateModel(v)}
-                disabled={heartbeatGateMode === "off"}
               />
-              {heartbeatGateMode !== "off" && heartbeatGateUseSeparateModel && (
+              {heartbeatGateUseSeparateModel && (
                 <>
+                  <Field label="Heartbeat gate mode" hint={help.heartbeatGateMode}>
+                    <HeartbeatGateModeDropdown
+                      value={heartbeatGateMode}
+                      onChange={updateHeartbeatGateMode}
+                    />
+                  </Field>
                   <Field label="Heartbeat model name" hint={help.heartbeatGateModel}>
                     <DraftInput
                       value={heartbeatGateModel}
@@ -1088,7 +1097,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
               )}
               {heartbeatGateModelError && (
                 <p className="text-xs text-destructive">
-                  Enter a heartbeat model name or turn off the separate heartbeat model toggle.
+                  Enter a heartbeat model name or turn off the local heartbeat model toggle.
                 </p>
               )}
             </div>

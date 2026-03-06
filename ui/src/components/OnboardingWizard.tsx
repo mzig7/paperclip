@@ -459,7 +459,7 @@ export function OnboardingWizard() {
     if (!createdCompanyId) return;
     if (heartbeatGateModelError) {
       setError(
-        "Enter a heartbeat model name or disable the separate heartbeat model toggle."
+        "Enter a heartbeat model name or disable the local heartbeat model toggle."
       );
       return;
     }
@@ -1216,58 +1216,22 @@ export function OnboardingWizard() {
                   )}
 
                   <div className="space-y-3 rounded-md border border-border p-3">
-                    <div>
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <label className="text-xs text-muted-foreground">
-                          Heartbeat gate mode
-                        </label>
-                        <HintIcon text="Control whether the heartbeat gate is disabled, observes in shadow mode, or actively enforces deferrals." />
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        {([
-                          ["off", "Off"],
-                          ["shadow", "Shadow"],
-                          ["enforce", "Enforce"]
-                        ] as const).map(([value, label]) => (
-                          <button
-                            key={value}
-                            type="button"
-                            className={cn(
-                              "rounded-md border px-2 py-2 text-xs transition-colors",
-                              heartbeatGateMode === value
-                                ? "border-foreground bg-accent"
-                                : "border-border hover:bg-accent/50"
-                            )}
-                            onClick={() =>
-                              updateHeartbeatGateMode(value as HeartbeatGateMode)
-                            }
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs text-muted-foreground">
-                          Use separate heartbeat model
+                          Use local heartbeat model
                         </span>
-                        <HintIcon text="Use a different model and optional OpenAI-compatible base URL for heartbeat gate decisions." />
+                        <HintIcon text="Use a local model and optional OpenAI-compatible base URL for heartbeat gate decisions." />
                       </div>
                       <button
                         type="button"
-                        disabled={heartbeatGateMode === "off"}
                         className={cn(
                           "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
                           heartbeatGateUseSeparateModel
                             ? "bg-green-600"
-                            : "bg-muted",
-                          heartbeatGateMode === "off" &&
-                            "opacity-50 cursor-not-allowed"
+                            : "bg-muted"
                         )}
                         onClick={() =>
-                          heartbeatGateMode !== "off" &&
                           updateHeartbeatGateSeparateModel(
                             !heartbeatGateUseSeparateModel
                           )
@@ -1284,9 +1248,39 @@ export function OnboardingWizard() {
                       </button>
                     </div>
 
-                    {heartbeatGateMode !== "off" &&
-                      heartbeatGateUseSeparateModel && (
+                    {heartbeatGateUseSeparateModel && (
                         <>
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <label className="text-xs text-muted-foreground">
+                                Heartbeat gate mode
+                              </label>
+                              <HintIcon text="Control whether the heartbeat gate is disabled, observes in shadow mode, or actively enforces deferrals." />
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                              {([
+                                ["off", "Off"],
+                                ["shadow", "Shadow"],
+                                ["enforce", "Enforce"]
+                              ] as const).map(([value, label]) => (
+                                <button
+                                  key={value}
+                                  type="button"
+                                  className={cn(
+                                    "rounded-md border px-2 py-2 text-xs transition-colors",
+                                    heartbeatGateMode === value
+                                      ? "border-foreground bg-accent"
+                                      : "border-border hover:bg-accent/50"
+                                  )}
+                                  onClick={() =>
+                                    updateHeartbeatGateMode(value as HeartbeatGateMode)
+                                  }
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                           <div>
                             <div className="flex items-center gap-1.5 mb-1">
                               <label className="text-xs text-muted-foreground">
@@ -1325,7 +1319,7 @@ export function OnboardingWizard() {
                     {heartbeatGateModelError && (
                       <p className="text-[11px] text-destructive">
                         Enter a heartbeat model name or turn off the separate
-                        heartbeat model toggle.
+                        local heartbeat model toggle.
                       </p>
                     )}
                   </div>
