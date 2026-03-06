@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AGENT_ADAPTER_TYPES } from "@paperclipai/shared";
+import {
+  AGENT_ADAPTER_TYPES,
+  HEARTBEAT_GATE_MODES,
+  type HeartbeatGateMode,
+} from "@paperclipai/shared";
 import type {
   Agent,
   AdapterEnvironmentTestResult,
@@ -28,6 +32,11 @@ import { cn } from "../lib/utils";
 import { extractModelName, extractProviderId } from "../lib/model-utils";
 import { queryKeys } from "../lib/queryKeys";
 import { useCompany } from "../context/CompanyContext";
+import {
+  buildHeartbeatGateRuntimeConfig,
+  getHeartbeatGateFormValues,
+  hasHeartbeatGateModelValidationError,
+} from "../lib/heartbeat-gate-config";
 import {
   Field,
   ToggleField,
@@ -91,6 +100,7 @@ interface Overlay {
   adapterType?: string;
   adapterConfig: Record<string, unknown>;
   heartbeat: Record<string, unknown>;
+  heartbeatGate: Record<string, unknown>;
   runtime: Record<string, unknown>;
 }
 
@@ -98,6 +108,7 @@ const emptyOverlay: Overlay = {
   identity: {},
   adapterConfig: {},
   heartbeat: {},
+  heartbeatGate: {},
   runtime: {},
 };
 
@@ -110,6 +121,7 @@ function isOverlayDirty(o: Overlay): boolean {
     o.adapterType !== undefined ||
     Object.keys(o.adapterConfig).length > 0 ||
     Object.keys(o.heartbeat).length > 0 ||
+    Object.keys(o.heartbeatGate).length > 0 ||
     Object.keys(o.runtime).length > 0
   );
 }
@@ -165,6 +177,12 @@ const claudeThinkingEffortOptions = [
   { id: "medium", label: "Medium" },
   { id: "high", label: "High" },
 ] as const;
+
+const heartbeatGateModeLabels: Record<HeartbeatGateMode, string> = {
+  off: "Off",
+  shadow: "Shadow",
+  enforce: "Enforce",
+};
 
 
 /* ---- Form ---- */
@@ -241,7 +259,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   }, []);
 
   const handleSave = useCallback(() => {
-    if (isCreate || !isDirty) return;
+    if (isCreate || !isDirty || heartbeatGateModelError) return;
     const agent = props.agent;
     const patch: Record<string, unknown> = {};
 
@@ -274,13 +292,36 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       const existing = (agent.adapterConfig ?? {}) as Record<string, unknown>;
       patch.adapterConfig = { ...existing, ...overlay.adapterConfig };
     }
-    if (Object.keys(overlay.heartbeat).length > 0) {
+    if (
+      Object.keys(overlay.heartbeat).length > 0 ||
+      Object.keys(overlay.heartbeatGate).length > 0 ||
+      Object.keys(overlay.runtime).length > 0
+    ) {
       const existingRc = (agent.runtimeConfig ?? {}) as Record<string, unknown>;
-      const existingHb = (existingRc.heartbeat ?? {}) as Record<string, unknown>;
-      patch.runtimeConfig = { ...existingRc, heartbeat: { ...existingHb, ...overlay.heartbeat } };
-    }
-    if (Object.keys(overlay.runtime).length > 0) {
-      Object.assign(patch, overlay.runtime);
+      const nextRuntimeConfig: Record<string, unknown> = {
+        ...existingRc,
+        ...overlay.runtime,
+      };
+
+      if (Object.keys(overlay.heartbeat).length > 0) {
+        const existingHb = (existingRc.heartbeat ?? {}) as Record<string, unknown>;
+        nextRuntimeConfig.heartbeat = { ...existingHb, ...overlay.heartbeat };
+      }
+
+      if (Object.keys(overlay.heartbeatGate).length > 0) {
+        const existingGate = (existingRc.heartbeatGate ?? {}) as Record<string, unknown>;
+        nextRuntimeConfig.heartbeatGate = buildHeartbeatGateRuntimeConfig(
+          {
+            heartbeatGateMode,
+            heartbeatGateUseSeparateModel,
+            heartbeatGateModel,
+            heartbeatGateBaseUrl,
+          },
+          existingGate,
+        );
+      }
+
+      patch.runtimeConfig = nextRuntimeConfig;
     }
 
     props.onSave(patch);
@@ -307,6 +348,9 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   const config = !isCreate ? ((props.agent.adapterConfig ?? {}) as Record<string, unknown>) : {};
   const runtimeConfig = !isCreate ? ((props.agent.runtimeConfig ?? {}) as Record<string, unknown>) : {};
   const heartbeat = !isCreate ? ((runtimeConfig.heartbeat ?? {}) as Record<string, unknown>) : {};
+  const existingHeartbeatGateValues = !isCreate
+    ? getHeartbeatGateFormValues(runtimeConfig)
+    : null;
 
   const adapterType = isCreate
     ? props.values.adapterType
@@ -385,6 +429,69 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     ? (patch: Partial<CreateConfigValues>) => props.onChange(patch)
     : null;
 
+  function updateHeartbeatGateMode(nextMode: HeartbeatGateMode) {
+    const normalizedMode = nextMode === "off" ? "off" : nextMode;
+    if (isCreate) {
+      set!({
+        heartbeatGateMode: normalizedMode,
+        ...(normalizedMode === "off"
+          ? {
+              heartbeatGateUseSeparateModel: false,
+              heartbeatGateModel: "",
+              heartbeatGateBaseUrl: "",
+            }
+          : {}),
+      });
+      return;
+    }
+
+    mark("heartbeatGate", "mode", normalizedMode);
+    if (normalizedMode === "off") {
+      mark("heartbeatGate", "useSeparateModel", false);
+      const nextGate = buildHeartbeatGateRuntimeConfig(
+        {
+          heartbeatGateMode: "off",
+          heartbeatGateUseSeparateModel: false,
+          heartbeatGateModel: "",
+          heartbeatGateBaseUrl: "",
+        },
+        (runtimeConfig.heartbeatGate ?? {}) as Record<string, unknown>,
+      );
+      mark("heartbeatGate", "model", nextGate.model ?? null);
+      mark("heartbeatGate", "baseUrl", nextGate.baseUrl ?? null);
+    }
+  }
+
+  function updateHeartbeatGateSeparateModel(enabled: boolean) {
+    if (isCreate) {
+      set!({
+        heartbeatGateUseSeparateModel: enabled,
+        ...(!enabled
+          ? {
+              heartbeatGateModel: "",
+              heartbeatGateBaseUrl: "",
+            }
+          : {}),
+      });
+      return;
+    }
+
+    mark("heartbeatGate", "useSeparateModel", enabled);
+    if (!enabled) {
+      const nextGate = buildHeartbeatGateRuntimeConfig(
+        {
+          heartbeatGateMode,
+          heartbeatGateUseSeparateModel: false,
+          heartbeatGateModel: "",
+          heartbeatGateBaseUrl: "",
+        },
+        (runtimeConfig.heartbeatGate ?? {}) as Record<string, unknown>,
+      );
+      mark("heartbeatGate", "model", nextGate.model ?? null);
+      mark("heartbeatGate", "baseUrl", nextGate.baseUrl ?? null);
+    }
+  }
+
   function buildAdapterConfigForTest(): Record<string, unknown> {
     if (isCreate) {
       return uiAdapter.buildAdapterConfig(val!);
@@ -442,26 +549,55 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   const codexSearchEnabled = adapterType === "codex_local"
     ? (isCreate ? Boolean(val!.search) : eff("adapterConfig", "search", Boolean(config.search)))
     : false;
-  const effectiveRuntimeConfig = useMemo(() => {
-    if (isCreate) {
-      return {
-        heartbeat: {
-          enabled: val!.heartbeatEnabled,
-          intervalSec: val!.intervalSec,
-        },
-      };
-    }
-    const mergedHeartbeat = {
-      ...(runtimeConfig.heartbeat && typeof runtimeConfig.heartbeat === "object"
-        ? runtimeConfig.heartbeat as Record<string, unknown>
-        : {}),
-      ...overlay.heartbeat,
-    };
-    return {
-      ...runtimeConfig,
-      heartbeat: mergedHeartbeat,
-    };
-  }, [isCreate, overlay.heartbeat, runtimeConfig, val]);
+  const heartbeatGateMode = isCreate
+    ? val!.heartbeatGateMode
+    : eff(
+        "heartbeatGate",
+        "mode",
+        existingHeartbeatGateValues?.heartbeatGateMode ?? "off",
+      );
+  const heartbeatGateUseSeparateModel = isCreate
+    ? val!.heartbeatGateUseSeparateModel
+    : eff(
+        "heartbeatGate",
+        "useSeparateModel",
+        existingHeartbeatGateValues?.heartbeatGateUseSeparateModel ?? false,
+      );
+  const heartbeatGateModel = isCreate
+    ? val!.heartbeatGateModel
+    : eff(
+        "heartbeatGate",
+        "model",
+        existingHeartbeatGateValues?.heartbeatGateModel ?? "",
+      );
+  const heartbeatGateBaseUrl = isCreate
+    ? val!.heartbeatGateBaseUrl
+    : eff(
+        "heartbeatGate",
+        "baseUrl",
+        existingHeartbeatGateValues?.heartbeatGateBaseUrl ?? "",
+      );
+  const heartbeatGateModelError = hasHeartbeatGateModelValidationError({
+    heartbeatGateMode,
+    heartbeatGateUseSeparateModel,
+    heartbeatGateModel,
+    heartbeatGateBaseUrl,
+  });
+  const heartbeatEnabled = isCreate
+    ? val!.heartbeatEnabled
+    : eff("heartbeat", "enabled", heartbeat.enabled !== false);
+  const heartbeatIntervalSec = isCreate
+    ? val!.intervalSec
+    : eff("heartbeat", "intervalSec", Number(heartbeat.intervalSec ?? 300));
+  const heartbeatWakeOnDemand = isCreate
+    ? true
+    : eff("heartbeat", "wakeOnDemand", heartbeat.wakeOnDemand !== false);
+  const heartbeatCooldownSec = isCreate
+    ? 10
+    : eff("heartbeat", "cooldownSec", Number(heartbeat.cooldownSec ?? 10));
+  const heartbeatMaxConcurrentRuns = isCreate
+    ? 1
+    : eff("heartbeat", "maxConcurrentRuns", Number(heartbeat.maxConcurrentRuns ?? 1));
   return (
     <div className={cn("relative", cards && "space-y-6")}>
       {/* ---- Floating Save button (edit mode, when dirty) ---- */}
@@ -472,7 +608,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             <Button
               size="sm"
               onClick={handleSave}
-              disabled={!isCreate && props.isSaving}
+              disabled={!isCreate && (props.isSaving || heartbeatGateModelError)}
             >
               {!isCreate && props.isSaving ? "Saving..." : "Save"}
             </Button>
@@ -894,28 +1030,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       )}
 
       {/* ---- Run Policy ---- */}
-      {isCreate && showCreateRunPolicySection ? (
-        <div className={cn(!cards && "border-b border-border")}>
-          {cards
-            ? <h3 className="text-sm font-medium flex items-center gap-2 mb-3"><Heart className="h-3 w-3" /> Run Policy</h3>
-            : <div className="px-4 py-2 text-xs font-medium text-muted-foreground flex items-center gap-2"><Heart className="h-3 w-3" /> Run Policy</div>
-          }
-          <div className={cn(cards ? "border border-border rounded-lg p-4 space-y-3" : "px-4 pb-3 space-y-3")}>
-            <ToggleWithNumber
-              label="Heartbeat on interval"
-              hint={help.heartbeatInterval}
-              checked={val!.heartbeatEnabled}
-              onCheckedChange={(v) => set!({ heartbeatEnabled: v })}
-              number={val!.intervalSec}
-              onNumberChange={(v) => set!({ intervalSec: v })}
-              numberLabel="sec"
-              numberPrefix="Run heartbeat every"
-              numberHint={help.intervalSec}
-              showNumber={val!.heartbeatEnabled}
-            />
-          </div>
-        </div>
-      ) : !isCreate ? (
+      {(showCreateRunPolicySection || !isCreate) && (
         <div className={cn(!cards && "border-b border-border")}>
           {cards
             ? <h3 className="text-sm font-medium flex items-center gap-2 mb-3"><Heart className="h-3 w-3" /> Run Policy</h3>
@@ -923,65 +1038,112 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
           }
           <div className={cn(cards ? "border border-border rounded-lg overflow-hidden" : "")}>
             <div className={cn(cards ? "p-4 space-y-3" : "px-4 pb-3 space-y-3")}>
-              <ToggleWithNumber
-                label="Heartbeat on interval"
-                hint={help.heartbeatInterval}
-                checked={eff("heartbeat", "enabled", heartbeat.enabled !== false)}
-                onCheckedChange={(v) => mark("heartbeat", "enabled", v)}
-                number={eff("heartbeat", "intervalSec", Number(heartbeat.intervalSec ?? 300))}
-                onNumberChange={(v) => mark("heartbeat", "intervalSec", v)}
-                numberLabel="sec"
-                numberPrefix="Run heartbeat every"
-                numberHint={help.intervalSec}
-                showNumber={eff("heartbeat", "enabled", heartbeat.enabled !== false)}
-              />
-            </div>
-            <CollapsibleSection
-              title="Advanced Run Policy"
-              bordered={cards}
-              open={runPolicyAdvancedOpen}
-              onToggle={() => setRunPolicyAdvancedOpen(!runPolicyAdvancedOpen)}
-            >
+            <ToggleWithNumber
+              label="Heartbeat on interval"
+              hint={help.heartbeatInterval}
+              checked={heartbeatEnabled}
+              onCheckedChange={(v) =>
+                isCreate ? set!({ heartbeatEnabled: v }) : mark("heartbeat", "enabled", v)
+              }
+              number={heartbeatIntervalSec}
+              onNumberChange={(v) =>
+                isCreate ? set!({ intervalSec: v }) : mark("heartbeat", "intervalSec", v)
+              }
+              numberLabel="sec"
+              numberPrefix="Run heartbeat every"
+              numberHint={help.intervalSec}
+              showNumber={heartbeatEnabled}
+            />
+          </div>
+          <CollapsibleSection
+            title="Advanced Run Policy"
+            bordered={cards}
+            open={runPolicyAdvancedOpen}
+            onToggle={() => setRunPolicyAdvancedOpen(!runPolicyAdvancedOpen)}
+          >
             <div className="space-y-3">
               <ToggleField
                 label="Wake on demand"
                 hint={help.wakeOnDemand}
-                checked={eff(
-                  "heartbeat",
-                  "wakeOnDemand",
-                  heartbeat.wakeOnDemand !== false,
-                )}
+                checked={heartbeatWakeOnDemand}
                 onChange={(v) => mark("heartbeat", "wakeOnDemand", v)}
+                disabled={isCreate}
               />
               <Field label="Cooldown (sec)" hint={help.cooldownSec}>
                 <DraftNumberInput
-                  value={eff(
-                    "heartbeat",
-                    "cooldownSec",
-                    Number(heartbeat.cooldownSec ?? 10),
-                  )}
-                  onCommit={(v) => mark("heartbeat", "cooldownSec", v)}
+                  value={heartbeatCooldownSec}
+                  onCommit={(v) =>
+                    isCreate ? undefined : mark("heartbeat", "cooldownSec", v)
+                  }
                   immediate
                   className={inputClass}
+                  disabled={isCreate}
                 />
               </Field>
               <Field label="Max concurrent runs" hint={help.maxConcurrentRuns}>
                 <DraftNumberInput
-                  value={eff(
-                    "heartbeat",
-                    "maxConcurrentRuns",
-                    Number(heartbeat.maxConcurrentRuns ?? 1),
-                  )}
-                  onCommit={(v) => mark("heartbeat", "maxConcurrentRuns", v)}
+                  value={heartbeatMaxConcurrentRuns}
+                  onCommit={(v) =>
+                    isCreate ? undefined : mark("heartbeat", "maxConcurrentRuns", v)
+                  }
                   immediate
                   className={inputClass}
+                  disabled={isCreate}
                 />
               </Field>
+              <Field label="Heartbeat gate mode" hint={help.heartbeatGateMode}>
+                <HeartbeatGateModeDropdown
+                  value={heartbeatGateMode}
+                  onChange={updateHeartbeatGateMode}
+                />
+              </Field>
+              <ToggleField
+                label="Use separate heartbeat model"
+                hint={help.heartbeatGateSeparateModel}
+                checked={heartbeatGateUseSeparateModel}
+                onChange={(v) => updateHeartbeatGateSeparateModel(v)}
+                disabled={heartbeatGateMode === "off"}
+              />
+              {heartbeatGateMode !== "off" && heartbeatGateUseSeparateModel && (
+                <>
+                  <Field label="Heartbeat model name" hint={help.heartbeatGateModel}>
+                    <DraftInput
+                      value={heartbeatGateModel}
+                      onCommit={(v) =>
+                        isCreate
+                          ? set!({ heartbeatGateModel: v })
+                          : mark("heartbeatGate", "model", v || null)
+                      }
+                      immediate
+                      className={inputClass}
+                      placeholder="e.g. gpt-4o-mini"
+                    />
+                  </Field>
+                  <Field label="Heartbeat base URL" hint={help.heartbeatGateBaseUrl}>
+                    <DraftInput
+                      value={heartbeatGateBaseUrl}
+                      onCommit={(v) =>
+                        isCreate
+                          ? set!({ heartbeatGateBaseUrl: v })
+                          : mark("heartbeatGate", "baseUrl", v || null)
+                      }
+                      immediate
+                      className={inputClass}
+                      placeholder="Optional, e.g. http://localhost:1234"
+                    />
+                  </Field>
+                </>
+              )}
+              {heartbeatGateModelError && (
+                <p className="text-xs text-destructive">
+                  Enter a heartbeat model name or turn off the separate heartbeat model toggle.
+                </p>
+              )}
             </div>
           </CollapsibleSection>
-          </div>
         </div>
-      ) : null}
+      </div>
+      )}
 
     </div>
   );
@@ -1045,6 +1207,43 @@ const ADAPTER_DISPLAY_LIST: { value: string; label: string; comingSoon: boolean 
     comingSoon: !ENABLED_ADAPTER_TYPES.has(t),
   })),
 ];
+
+function HeartbeatGateModeDropdown({
+  value,
+  onChange,
+}: {
+  value: HeartbeatGateMode;
+  onChange: (mode: HeartbeatGateMode) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent/50 transition-colors w-full justify-between"
+        >
+          <span>{heartbeatGateModeLabels[value]}</span>
+          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1" align="start">
+        {HEARTBEAT_GATE_MODES.map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            className={cn(
+              "flex items-center justify-between w-full px-2 py-1.5 text-sm rounded hover:bg-accent/50",
+              mode === value && "bg-accent",
+            )}
+            onClick={() => onChange(mode)}
+          >
+            {heartbeatGateModeLabels[mode]}
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function AdapterTypeDropdown({
   value,
