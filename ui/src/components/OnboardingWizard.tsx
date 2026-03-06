@@ -1,6 +1,9 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AdapterEnvironmentTestResult } from "@paperclipai/shared";
+import type {
+  AdapterEnvironmentTestResult,
+  HeartbeatGateMode,
+} from "@paperclipai/shared";
 import { useLocation, useNavigate, useParams } from "@/lib/router";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
@@ -39,6 +42,10 @@ import { DEFAULT_GEMINI_LOCAL_MODEL } from "@paperclipai/adapter-gemini-local";
 import { resolveRouteOnboardingOptions } from "../lib/onboarding-route";
 import { AsciiArtAnimation } from "./AsciiArtAnimation";
 import { OpenCodeLogoIcon } from "./OpenCodeLogoIcon";
+import {
+  buildCreateRuntimeConfig,
+  hasHeartbeatGateModelValidationError
+} from "../lib/heartbeat-gate-config";
 import {
   Building2,
   Bot,
@@ -117,6 +124,12 @@ export function OnboardingWizard() {
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
   const [url, setUrl] = useState("");
+  const [heartbeatGateMode, setHeartbeatGateMode] =
+    useState<HeartbeatGateMode>("off");
+  const [heartbeatGateUseSeparateModel, setHeartbeatGateUseSeparateModel] =
+    useState(false);
+  const [heartbeatGateModel, setHeartbeatGateModel] = useState("");
+  const [heartbeatGateBaseUrl, setHeartbeatGateBaseUrl] = useState("");
   const [adapterEnvResult, setAdapterEnvResult] =
     useState<AdapterEnvironmentTestResult | null>(null);
   const [adapterEnvError, setAdapterEnvError] = useState<string | null>(null);
@@ -220,10 +233,16 @@ export function OnboardingWizard() {
       : adapterType === "pi_local"
       ? "pi"
       : adapterType === "cursor"
-      ? "agent"
-      : adapterType === "opencode_local"
-      ? "opencode"
-      : "claude");
+        ? "agent"
+        : adapterType === "opencode_local"
+          ? "opencode"
+          : "claude");
+  const heartbeatGateModelError = hasHeartbeatGateModelValidationError({
+    heartbeatGateMode,
+    heartbeatGateUseSeparateModel,
+    heartbeatGateModel,
+    heartbeatGateBaseUrl
+  });
 
   useEffect(() => {
     if (step !== 2) return;
@@ -289,6 +308,10 @@ export function OnboardingWizard() {
     setCommand("");
     setArgs("");
     setUrl("");
+    setHeartbeatGateMode("off");
+    setHeartbeatGateUseSeparateModel(false);
+    setHeartbeatGateModel("");
+    setHeartbeatGateBaseUrl("");
     setAdapterEnvResult(null);
     setAdapterEnvError(null);
     setAdapterEnvLoading(false);
@@ -343,6 +366,26 @@ export function OnboardingWizard() {
       config.env = env;
     }
     return config;
+  }
+
+  function updateHeartbeatGateMode(nextMode: HeartbeatGateMode) {
+    setHeartbeatGateMode(nextMode);
+    if (nextMode === "off") {
+      setHeartbeatGateUseSeparateModel(false);
+      setHeartbeatGateModel("");
+      setHeartbeatGateBaseUrl("");
+    }
+  }
+
+  function updateHeartbeatGateSeparateModel(enabled: boolean) {
+    setHeartbeatGateUseSeparateModel(enabled);
+    setHeartbeatGateMode((current) =>
+      enabled ? (current === "off" ? "shadow" : current) : "off"
+    );
+    if (!enabled) {
+      setHeartbeatGateModel("");
+      setHeartbeatGateBaseUrl("");
+    }
   }
 
   async function runAdapterEnvironmentTest(
@@ -414,6 +457,12 @@ export function OnboardingWizard() {
 
   async function handleStep2Next() {
     if (!createdCompanyId) return;
+    if (heartbeatGateModelError) {
+      setError(
+        "Enter a heartbeat model name or disable the separate heartbeat model toggle."
+      );
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -460,15 +509,18 @@ export function OnboardingWizard() {
         role: "ceo",
         adapterType,
         adapterConfig: buildAdapterConfig(),
-        runtimeConfig: {
-          heartbeat: {
-            enabled: true,
-            intervalSec: 3600,
-            wakeOnDemand: true,
-            cooldownSec: 10,
-            maxConcurrentRuns: 1
+        runtimeConfig: buildCreateRuntimeConfig(
+          {
+            heartbeatEnabled: true,
+            intervalSec: 3600
+          },
+          {
+            heartbeatGateMode,
+            heartbeatGateUseSeparateModel,
+            heartbeatGateModel,
+            heartbeatGateBaseUrl
           }
-        }
+        )
       });
       setCreatedAgentId(agent.id);
       queryClient.invalidateQueries({
@@ -1162,6 +1214,121 @@ export function OnboardingWizard() {
                       />
                     </div>
                   )}
+
+                  <div className="space-y-3 rounded-md border border-border p-3">
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <label className="text-xs text-muted-foreground">
+                          Heartbeat gate mode
+                        </label>
+                        <HintIcon text="Control whether the heartbeat gate is disabled, observes in shadow mode, or actively enforces deferrals." />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {([
+                          ["off", "Off"],
+                          ["shadow", "Shadow"],
+                          ["enforce", "Enforce"]
+                        ] as const).map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            className={cn(
+                              "rounded-md border px-2 py-2 text-xs transition-colors",
+                              heartbeatGateMode === value
+                                ? "border-foreground bg-accent"
+                                : "border-border hover:bg-accent/50"
+                            )}
+                            onClick={() =>
+                              updateHeartbeatGateMode(value as HeartbeatGateMode)
+                            }
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">
+                          Use separate heartbeat model
+                        </span>
+                        <HintIcon text="Use a different model and optional OpenAI-compatible base URL for heartbeat gate decisions." />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={heartbeatGateMode === "off"}
+                        className={cn(
+                          "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                          heartbeatGateUseSeparateModel
+                            ? "bg-green-600"
+                            : "bg-muted",
+                          heartbeatGateMode === "off" &&
+                            "opacity-50 cursor-not-allowed"
+                        )}
+                        onClick={() =>
+                          heartbeatGateMode !== "off" &&
+                          updateHeartbeatGateSeparateModel(
+                            !heartbeatGateUseSeparateModel
+                          )
+                        }
+                      >
+                        <span
+                          className={cn(
+                            "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                            heartbeatGateUseSeparateModel
+                              ? "translate-x-4.5"
+                              : "translate-x-0.5"
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    {heartbeatGateMode !== "off" &&
+                      heartbeatGateUseSeparateModel && (
+                        <>
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <label className="text-xs text-muted-foreground">
+                                Heartbeat model name
+                              </label>
+                              <HintIcon text="Model name used by the heartbeat gate when separate model routing is enabled." />
+                            </div>
+                            <input
+                              className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm font-mono outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+                              placeholder="e.g. gpt-4o-mini"
+                              value={heartbeatGateModel}
+                              onChange={(e) =>
+                                setHeartbeatGateModel(e.target.value)
+                              }
+                            />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <label className="text-xs text-muted-foreground">
+                                Heartbeat base URL
+                              </label>
+                              <HintIcon text="Optional OpenAI-compatible base URL for the heartbeat gate, such as LM Studio or another local endpoint." />
+                            </div>
+                            <input
+                              className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm font-mono outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+                              placeholder="Optional, e.g. http://localhost:1234"
+                              value={heartbeatGateBaseUrl}
+                              onChange={(e) =>
+                                setHeartbeatGateBaseUrl(e.target.value)
+                              }
+                            />
+                          </div>
+                        </>
+                      )}
+
+                    {heartbeatGateModelError && (
+                      <p className="text-[11px] text-destructive">
+                        Enter a heartbeat model name or turn off the separate
+                        heartbeat model toggle.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1298,7 +1465,10 @@ export function OnboardingWizard() {
                     <Button
                       size="sm"
                       disabled={
-                        !agentName.trim() || loading || adapterEnvLoading
+                        !agentName.trim() ||
+                        loading ||
+                        adapterEnvLoading ||
+                        heartbeatGateModelError
                       }
                       onClick={handleStep2Next}
                     >

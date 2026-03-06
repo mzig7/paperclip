@@ -49,6 +49,10 @@ export const help: Record<string, string> = {
   webhookUrl: "The URL that receives POST requests when the agent is invoked.",
   heartbeatInterval: "Run this agent automatically on a timer. Useful for periodic tasks like checking for new work.",
   intervalSec: "Seconds between automatic heartbeat invocations.",
+  heartbeatGateMode: "Control whether the heartbeat gate is disabled, observes in shadow mode, or actively enforces deferrals.",
+  heartbeatGateSeparateModel: "Use a different model and optional OpenAI-compatible base URL for heartbeat gate decisions.",
+  heartbeatGateModel: "Model name used by the heartbeat gate when separate model routing is enabled.",
+  heartbeatGateBaseUrl: "Optional OpenAI-compatible base URL for the heartbeat gate, such as LM Studio or another local endpoint.",
   timeoutSec: "Maximum seconds a run can take before being terminated. 0 means no timeout.",
   graceSec: "Seconds to wait after sending interrupt before force-killing the process.",
   wakeOnDemand: "Allow this agent to be woken by assignments, API calls, UI actions, or automated systems.",
@@ -104,11 +108,13 @@ export function ToggleField({
   hint,
   checked,
   onChange,
+  disabled,
 }: {
   label: string;
   hint?: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between">
@@ -120,9 +126,12 @@ export function ToggleField({
         data-slot="toggle"
         className={cn(
           "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-          checked ? "bg-green-600" : "bg-muted"
+          checked ? "bg-green-600" : "bg-muted",
+          disabled && "opacity-50 cursor-not-allowed"
         )}
-        onClick={() => onChange(!checked)}
+        type="button"
+        disabled={disabled}
+        onClick={() => !disabled && onChange(!checked)}
       >
         <span
           className={cn(

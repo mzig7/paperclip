@@ -347,4 +347,8 @@ export interface CreateConfigValues {
   maxTurnsPerRun: number;
   heartbeatEnabled: boolean;
   intervalSec: number;
+  heartbeatGateMode: "off" | "shadow" | "enforce";
+  heartbeatGateUseSeparateModel: boolean;
+  heartbeatGateModel: string;
+  heartbeatGateBaseUrl: string;
 }
