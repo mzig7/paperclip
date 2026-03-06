@@ -25,6 +25,7 @@ import { Identity } from "../components/Identity";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { formatCents, formatDate, relativeTime, formatTokens } from "../lib/utils";
 import { cn } from "../lib/utils";
+import { getHeartbeatGateFormValues } from "../lib/heartbeat-gate-config";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -845,6 +846,9 @@ function ConfigSummary({
   directReports: Agent[];
 }) {
   const config = agent.adapterConfig as Record<string, unknown>;
+  const heartbeatGate = getHeartbeatGateFormValues(
+    (agent.runtimeConfig as Record<string, unknown>) ?? {},
+  );
   const promptText = typeof config?.promptTemplate === "string" ? config.promptTemplate : "";
 
   return (
@@ -888,6 +892,25 @@ function ConfigSummary({
                   })()
                 : <span className="text-muted-foreground">Not configured</span>
               }
+            </SummaryRow>
+            <SummaryRow label="Heartbeat gate">
+              {heartbeatGate.heartbeatGateMode === "off" ? (
+                <span className="text-muted-foreground">Off</span>
+              ) : (
+                <span>
+                  {heartbeatGate.heartbeatGateMode === "shadow" ? "Shadow" : "Enforce"}
+                  {heartbeatGate.heartbeatGateUseSeparateModel &&
+                    heartbeatGate.heartbeatGateModel && (
+                      <>
+                        {" "}
+                        via <span className="font-mono">{heartbeatGate.heartbeatGateModel}</span>
+                        {heartbeatGate.heartbeatGateBaseUrl
+                          ? ` @ ${heartbeatGate.heartbeatGateBaseUrl}`
+                          : ""}
+                      </>
+                    )}
+                </span>
+              )}
             </SummaryRow>
             <SummaryRow label="Last heartbeat">
               {agent.lastHeartbeatAt
