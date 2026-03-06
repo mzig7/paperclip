@@ -42,7 +42,7 @@ export const help: Record<string, string> = {
   heartbeatInterval: "Run this agent automatically on a timer. Useful for periodic tasks like checking for new work.",
   intervalSec: "Seconds between automatic heartbeat invocations.",
   heartbeatGateMode: "Control whether the heartbeat gate is disabled, observes in shadow mode, or actively enforces deferrals.",
-  heartbeatGateSeparateModel: "Use a different model and optional OpenAI-compatible base URL for heartbeat gate decisions.",
+  heartbeatGateSeparateModel: "Use a local model and optional OpenAI-compatible base URL for heartbeat gate decisions.",
   heartbeatGateModel: "Model name used by the heartbeat gate when separate model routing is enabled.",
   heartbeatGateBaseUrl: "Optional OpenAI-compatible base URL for the heartbeat gate, such as LM Studio or another local endpoint.",
   timeoutSec: "Maximum seconds a run can take before being terminated. 0 means no timeout.",
