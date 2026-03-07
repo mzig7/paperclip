@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link, useBeforeUnload } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentsApi, type AgentKey, type ClaudeLoginResult } from "../api/agents";
 import { heartbeatsApi } from "../api/heartbeats";
+import { ApiError } from "../api/client";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
 import { activityApi } from "../api/activity";
 import { issuesApi } from "../api/issues";
@@ -56,7 +57,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { AgentIcon, AgentIconPicker } from "../components/AgentIconPicker";
-import { isUuidLike, type Agent, type HeartbeatRun, type HeartbeatRunEvent, type AgentRuntimeState } from "@paperclipai/shared";
+import { isUuidLike, type Agent, type HeartbeatRun, type HeartbeatRunEvent, type AgentRuntimeState, type LiveEvent } from "@paperclipai/shared";
 import { agentRouteRef } from "../lib/utils";
 
 const runStatusIcons: Record<string, { icon: typeof CheckCircle2; color: string }> = {
@@ -265,11 +266,12 @@ export function AgentDetail() {
   const resolvedCompanyId = agent?.companyId ?? selectedCompanyId;
   const canonicalAgentRef = agent ? agentRouteRef(agent) : routeAgentRef;
   const agentLookupRef = agent?.id ?? routeAgentRef;
+  const resolvedAgentId = agent?.id ?? null;
 
   const { data: runtimeState } = useQuery({
-    queryKey: queryKeys.agents.runtimeState(agentLookupRef),
-    queryFn: () => agentsApi.runtimeState(agentLookupRef, resolvedCompanyId ?? undefined),
-    enabled: Boolean(agentLookupRef),
+    queryKey: queryKeys.agents.runtimeState(resolvedAgentId ?? routeAgentRef),
+    queryFn: () => agentsApi.runtimeState(resolvedAgentId!, resolvedCompanyId ?? undefined),
+    enabled: Boolean(resolvedAgentId),
   });
 
   const { data: heartbeats } = useQuery({
@@ -1177,8 +1179,12 @@ function ConfigurationTab({
   const queryClient = useQueryClient();
 
   const { data: adapterModels } = useQuery({
-    queryKey: ["adapter-models", agent.adapterType],
-    queryFn: () => agentsApi.adapterModels(agent.adapterType),
+    queryKey:
+      companyId
+        ? queryKeys.agents.adapterModels(companyId, agent.adapterType)
+        : ["agents", "none", "adapter-models", agent.adapterType],
+    queryFn: () => agentsApi.adapterModels(companyId!, agent.adapterType),
+    enabled: Boolean(companyId),
   });
 
   const updateAgent = useMutation({
@@ -1418,6 +1424,38 @@ function RunDetail({ run, agentRouteId, adapterType }: { run: HeartbeatRun; agen
     },
   });
 
+  const canRetryRun = run.status === "failed" || run.status === "timed_out";
+  const retryPayload = useMemo(() => {
+    const payload: Record<string, unknown> = {};
+    const context = asRecord(run.contextSnapshot);
+    if (!context) return payload;
+    const issueId = asNonEmptyString(context.issueId);
+    const taskId = asNonEmptyString(context.taskId);
+    const taskKey = asNonEmptyString(context.taskKey);
+    if (issueId) payload.issueId = issueId;
+    if (taskId) payload.taskId = taskId;
+    if (taskKey) payload.taskKey = taskKey;
+    return payload;
+  }, [run.contextSnapshot]);
+  const retryRun = useMutation({
+    mutationFn: async () => {
+      const result = await agentsApi.wakeup(run.agentId, {
+        source: "on_demand",
+        triggerDetail: "manual",
+        reason: "retry_failed_run",
+        payload: retryPayload,
+      }, run.companyId);
+      if (!("id" in result)) {
+        throw new Error("Retry was skipped because the agent is not currently invokable.");
+      }
+      return result;
+    },
+    onSuccess: (newRun) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.heartbeats(run.companyId, run.agentId) });
+      navigate(`/agents/${agentRouteId}/runs/${newRun.id}`);
+    },
+  });
+
   const { data: touchedIssues } = useQuery({
     queryKey: queryKeys.runIssues(run.id),
     queryFn: () => activityApi.issuesForRun(run.id),
@@ -1508,10 +1546,27 @@ function RunDetail({ run, agentRouteId, adapterType }: { run: HeartbeatRun; agen
                   {resumeRun.isPending ? "Resuming…" : "Resume"}
                 </Button>
               )}
+              {canRetryRun && !canResumeLostRun && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-6 px-2"
+                  onClick={() => retryRun.mutate()}
+                  disabled={retryRun.isPending}
+                >
+                  <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                  {retryRun.isPending ? "Retrying…" : "Retry"}
+                </Button>
+              )}
             </div>
             {resumeRun.isError && (
               <div className="text-xs text-destructive">
                 {resumeRun.error instanceof Error ? resumeRun.error.message : "Failed to resume run"}
+              </div>
+            )}
+            {retryRun.isError && (
+              <div className="text-xs text-destructive">
+                {retryRun.error instanceof Error ? retryRun.error.message : "Failed to retry run"}
               </div>
             )}
             {startTime && (
@@ -1729,6 +1784,7 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
   const [logError, setLogError] = useState<string | null>(null);
   const [logOffset, setLogOffset] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [isStreamingConnected, setIsStreamingConnected] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const pendingLogLineRef = useRef("");
   const scrollContainerRef = useRef<ScrollContainer | null>(null);
@@ -1738,6 +1794,10 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
     distanceFromBottom: Number.POSITIVE_INFINITY,
   });
   const isLive = run.status === "running" || run.status === "queued";
+
+  function isRunLogUnavailable(err: unknown): boolean {
+    return err instanceof ApiError && err.status === 404;
+  }
 
   function appendLogContent(content: string, finalize = false) {
     if (!content && !finalize) return;
@@ -1873,7 +1933,7 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
     setLogOffset(0);
     setLogError(null);
 
-    if (!run.logRef) {
+    if (!run.logRef && !isLive) {
       setLogLoading(false);
       return () => {
         cancelled = true;
@@ -1902,6 +1962,10 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
         }
       } catch (err) {
         if (!cancelled) {
+          if (isLive && isRunLogUnavailable(err)) {
+            setLogLoading(false);
+            return;
+          }
           setLogError(err instanceof Error ? err.message : "Failed to load run log");
         }
       } finally {
@@ -1917,7 +1981,7 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
 
   // Poll for live updates
   useEffect(() => {
-    if (!isLive) return;
+    if (!isLive || isStreamingConnected) return;
     const interval = setInterval(async () => {
       const maxSeq = events.length > 0 ? Math.max(...events.map((e) => e.seq)) : 0;
       try {
@@ -1930,11 +1994,11 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
       }
     }, 2000);
     return () => clearInterval(interval);
-  }, [run.id, isLive, events]);
+  }, [run.id, isLive, isStreamingConnected, events]);
 
   // Poll shell log for running runs
   useEffect(() => {
-    if (!isLive || !run.logRef) return;
+    if (!isLive || isStreamingConnected) return;
     const interval = setInterval(async () => {
       try {
         const result = await heartbeatsApi.log(run.id, logOffset, 256_000);
@@ -1946,12 +2010,125 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
         } else if (result.content.length > 0) {
           setLogOffset((prev) => prev + result.content.length);
         }
-      } catch {
+      } catch (err) {
+        if (isRunLogUnavailable(err)) return;
         // ignore polling errors
       }
     }, 2000);
     return () => clearInterval(interval);
-  }, [run.id, run.logRef, isLive, logOffset]);
+  }, [run.id, isLive, isStreamingConnected, logOffset]);
+
+  // Stream live updates from websocket (primary path for running runs).
+  useEffect(() => {
+    if (!isLive) return;
+
+    let closed = false;
+    let reconnectTimer: number | null = null;
+    let socket: WebSocket | null = null;
+
+    const scheduleReconnect = () => {
+      if (closed) return;
+      reconnectTimer = window.setTimeout(connect, 1500);
+    };
+
+    const connect = () => {
+      if (closed) return;
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const url = `${protocol}://${window.location.host}/api/companies/${encodeURIComponent(run.companyId)}/events/ws`;
+      socket = new WebSocket(url);
+
+      socket.onopen = () => {
+        setIsStreamingConnected(true);
+      };
+
+      socket.onmessage = (message) => {
+        const rawMessage = typeof message.data === "string" ? message.data : "";
+        if (!rawMessage) return;
+
+        let event: LiveEvent;
+        try {
+          event = JSON.parse(rawMessage) as LiveEvent;
+        } catch {
+          return;
+        }
+
+        if (event.companyId !== run.companyId) return;
+        const payload = asRecord(event.payload);
+        const eventRunId = asNonEmptyString(payload?.runId);
+        if (!payload || eventRunId !== run.id) return;
+
+        if (event.type === "heartbeat.run.log") {
+          const chunk = typeof payload.chunk === "string" ? payload.chunk : "";
+          if (!chunk) return;
+          const streamRaw = asNonEmptyString(payload.stream);
+          const stream = streamRaw === "stderr" || streamRaw === "system" ? streamRaw : "stdout";
+          const ts = asNonEmptyString((payload as Record<string, unknown>).ts) ?? event.createdAt;
+          setLogLines((prev) => [...prev, { ts, stream, chunk }]);
+          return;
+        }
+
+        if (event.type !== "heartbeat.run.event") return;
+
+        const seq = typeof payload.seq === "number" ? payload.seq : null;
+        if (seq === null || !Number.isFinite(seq)) return;
+
+        const streamRaw = asNonEmptyString(payload.stream);
+        const stream =
+          streamRaw === "stdout" || streamRaw === "stderr" || streamRaw === "system"
+            ? streamRaw
+            : null;
+        const levelRaw = asNonEmptyString(payload.level);
+        const level =
+          levelRaw === "info" || levelRaw === "warn" || levelRaw === "error"
+            ? levelRaw
+            : null;
+
+        const liveEvent: HeartbeatRunEvent = {
+          id: seq,
+          companyId: run.companyId,
+          runId: run.id,
+          agentId: run.agentId,
+          seq,
+          eventType: asNonEmptyString(payload.eventType) ?? "event",
+          stream,
+          level,
+          color: asNonEmptyString(payload.color),
+          message: asNonEmptyString(payload.message),
+          payload: asRecord(payload.payload),
+          createdAt: new Date(event.createdAt),
+        };
+
+        setEvents((prev) => {
+          if (prev.some((existing) => existing.seq === seq)) return prev;
+          return [...prev, liveEvent];
+        });
+      };
+
+      socket.onerror = () => {
+        socket?.close();
+      };
+
+      socket.onclose = () => {
+        setIsStreamingConnected(false);
+        scheduleReconnect();
+      };
+    };
+
+    connect();
+
+    return () => {
+      closed = true;
+      setIsStreamingConnected(false);
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      if (socket) {
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.onclose = null;
+        socket.close(1000, "run_detail_unmount");
+      }
+    };
+  }, [isLive, run.companyId, run.id, run.agentId]);
 
   const adapterInvokePayload = useMemo(() => {
     const evt = events.find((e) => e.eventType === "adapter.invoke");

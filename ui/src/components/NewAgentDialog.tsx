@@ -59,15 +59,24 @@ export function NewAgentDialog() {
     enabled: !!selectedCompanyId && newAgentOpen,
   });
 
-  const { data: adapterModels } = useQuery({
-    queryKey: ["adapter-models", configValues.adapterType],
-    queryFn: () => agentsApi.adapterModels(configValues.adapterType),
-    enabled: newAgentOpen,
+  const {
+    data: adapterModels,
+    error: adapterModelsError,
+    isLoading: adapterModelsLoading,
+    isFetching: adapterModelsFetching,
+  } = useQuery({
+    queryKey:
+      selectedCompanyId
+        ? queryKeys.agents.adapterModels(selectedCompanyId, configValues.adapterType)
+        : ["agents", "none", "adapter-models", configValues.adapterType],
+    queryFn: () => agentsApi.adapterModels(selectedCompanyId!, configValues.adapterType),
+    enabled: Boolean(selectedCompanyId) && newAgentOpen,
   });
 
   const isFirstAgent = !agents || agents.length === 0;
   const effectiveRole = isFirstAgent ? "ceo" : role;
   const heartbeatGateModelError = hasHeartbeatGateModelValidationError(configValues);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Auto-fill for CEO
   useEffect(() => {
@@ -87,6 +96,9 @@ export function NewAgentDialog() {
       closeNewAgent();
       navigate(agentUrl(result.agent));
     },
+    onError: (error) => {
+      setFormError(error instanceof Error ? error.message : "Failed to create agent");
+    },
   });
 
   function reset() {
@@ -96,6 +108,7 @@ export function NewAgentDialog() {
     setReportsTo("");
     setConfigValues(defaultCreateValues);
     setExpanded(true);
+    setFormError(null);
   }
 
   function buildAdapterConfig() {
@@ -105,6 +118,35 @@ export function NewAgentDialog() {
 
   function handleSubmit() {
     if (!selectedCompanyId || !name.trim() || heartbeatGateModelError) return;
+    setFormError(null);
+    if (configValues.adapterType === "opencode_local") {
+      const selectedModel = configValues.model.trim();
+      if (!selectedModel) {
+        setFormError("OpenCode requires an explicit model in provider/model format.");
+        return;
+      }
+      if (adapterModelsError) {
+        setFormError(
+          adapterModelsError instanceof Error
+            ? adapterModelsError.message
+            : "Failed to load OpenCode models.",
+        );
+        return;
+      }
+      if (adapterModelsLoading || adapterModelsFetching) {
+        setFormError("OpenCode models are still loading. Please wait and try again.");
+        return;
+      }
+      const discovered = adapterModels ?? [];
+      if (!discovered.some((entry) => entry.id === selectedModel)) {
+        setFormError(
+          discovered.length === 0
+            ? "No OpenCode models discovered. Run `opencode models` and authenticate providers."
+            : `Configured OpenCode model is unavailable: ${selectedModel}`,
+        );
+        return;
+      }
+    }
     createAgent.mutate({
       name: name.trim(),
       role: effectiveRole,
@@ -284,6 +326,11 @@ export function NewAgentDialog() {
           <span className="text-xs text-muted-foreground">
             {isFirstAgent ? "This will be the CEO" : ""}
           </span>
+        </div>
+        {formError && (
+          <div className="px-4 pb-2 text-xs text-destructive">{formError}</div>
+        )}
+        <div className="flex items-center justify-end px-4 pb-3">
           <Button
             size="sm"
             disabled={!name.trim() || createAgent.isPending || heartbeatGateModelError}

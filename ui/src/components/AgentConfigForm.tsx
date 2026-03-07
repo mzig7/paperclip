@@ -19,6 +19,7 @@ import {
   DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
   DEFAULT_CODEX_LOCAL_MODEL,
 } from "@paperclipai/adapter-codex-local";
+import { DEFAULT_CURSOR_LOCAL_MODEL } from "@paperclipai/adapter-cursor-local";
 import {
   Popover,
   PopoverContent,
@@ -27,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { FolderOpen, Heart, ChevronDown, X } from "lucide-react";
 import { cn } from "../lib/utils";
+import { extractModelName, extractProviderId } from "../lib/model-utils";
 import { queryKeys } from "../lib/queryKeys";
 import { useCompany } from "../context/CompanyContext";
 import {
@@ -49,6 +51,7 @@ import { getUIAdapter } from "../adapters";
 import { ClaudeLocalAdvancedFields } from "../adapters/claude-local/config-fields";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { ChoosePathButton } from "./PathInstructionsModal";
+import { OpenCodeLogoIcon } from "./OpenCodeLogoIcon";
 
 /* ---- Create mode values ---- */
 
@@ -140,6 +143,21 @@ const codexThinkingEffortOptions = [
   { id: "low", label: "Low" },
   { id: "medium", label: "Medium" },
   { id: "high", label: "High" },
+] as const;
+
+const openCodeThinkingEffortOptions = [
+  { id: "", label: "Auto" },
+  { id: "minimal", label: "Minimal" },
+  { id: "low", label: "Low" },
+  { id: "medium", label: "Medium" },
+  { id: "high", label: "High" },
+  { id: "max", label: "Max" },
+] as const;
+
+const cursorModeOptions = [
+  { id: "", label: "Auto" },
+  { id: "plan", label: "Plan" },
+  { id: "ask", label: "Ask" },
 ] as const;
 
 const claudeThinkingEffortOptions = [
@@ -298,13 +316,23 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   const adapterType = isCreate
     ? props.values.adapterType
     : overlay.adapterType ?? props.agent.adapterType;
-  const isLocal = adapterType === "claude_local" || adapterType === "codex_local";
+  const isLocal =
+    adapterType === "claude_local" ||
+    adapterType === "codex_local" ||
+    adapterType === "opencode_local" ||
+    adapterType === "cursor";
   const uiAdapter = useMemo(() => getUIAdapter(adapterType), [adapterType]);
 
   // Fetch adapter models for the effective adapter type
-  const { data: fetchedModels } = useQuery({
-    queryKey: ["adapter-models", adapterType],
-    queryFn: () => agentsApi.adapterModels(adapterType),
+  const {
+    data: fetchedModels,
+    error: fetchedModelsError,
+  } = useQuery({
+    queryKey: selectedCompanyId
+      ? queryKeys.agents.adapterModels(selectedCompanyId, adapterType)
+      : ["agents", "none", "adapter-models", adapterType],
+    queryFn: () => agentsApi.adapterModels(selectedCompanyId!, adapterType),
+    enabled: Boolean(selectedCompanyId),
   });
   const models = fetchedModels ?? externalModels ?? [];
 
@@ -430,9 +458,22 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     ? val!.model
     : eff("adapterConfig", "model", String(config.model ?? ""));
 
-  const thinkingEffortKey = adapterType === "codex_local" ? "modelReasoningEffort" : "effort";
+  const thinkingEffortKey =
+    adapterType === "codex_local"
+      ? "modelReasoningEffort"
+      : adapterType === "cursor"
+        ? "mode"
+        : adapterType === "opencode_local"
+          ? "variant"
+          : "effort";
   const thinkingEffortOptions =
-    adapterType === "codex_local" ? codexThinkingEffortOptions : claudeThinkingEffortOptions;
+    adapterType === "codex_local"
+      ? codexThinkingEffortOptions
+      : adapterType === "cursor"
+        ? cursorModeOptions
+        : adapterType === "opencode_local"
+          ? openCodeThinkingEffortOptions
+          : claudeThinkingEffortOptions;
   const currentThinkingEffort = isCreate
     ? val!.thinkingEffort
     : adapterType === "codex_local"
@@ -441,6 +482,10 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
           "modelReasoningEffort",
           String(config.modelReasoningEffort ?? config.reasoningEffort ?? ""),
         )
+      : adapterType === "cursor"
+        ? eff("adapterConfig", "mode", String(config.mode ?? ""))
+        : adapterType === "opencode_local"
+          ? eff("adapterConfig", "variant", String(config.variant ?? ""))
       : eff("adapterConfig", "effort", String(config.effort ?? ""));
   const codexSearchEnabled = adapterType === "codex_local"
     ? (isCreate ? Boolean(val!.search) : eff("adapterConfig", "search", Boolean(config.search)))
@@ -608,18 +653,29 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                     nextValues.model = DEFAULT_CODEX_LOCAL_MODEL;
                     nextValues.dangerouslyBypassSandbox =
                       DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX;
+                  } else if (t === "cursor") {
+                    nextValues.model = DEFAULT_CURSOR_LOCAL_MODEL;
+                  } else if (t === "opencode_local") {
+                    nextValues.model = "";
                   }
                   set!(nextValues);
                 } else {
-                  // Clear all adapter config and explicitly blank out model + both effort keys
+                  // Clear all adapter config and explicitly blank out model + effort/mode keys
                   // so the old adapter's values don't bleed through via eff()
                   setOverlay((prev) => ({
                     ...prev,
                     adapterType: t,
                     adapterConfig: {
-                      model: t === "codex_local" ? DEFAULT_CODEX_LOCAL_MODEL : "",
+                      model:
+                        t === "codex_local"
+                          ? DEFAULT_CODEX_LOCAL_MODEL
+                          : t === "cursor"
+                            ? DEFAULT_CURSOR_LOCAL_MODEL
+                          : "",
                       effort: "",
                       modelReasoningEffort: "",
+                      variant: "",
+                      mode: "",
                       ...(t === "codex_local"
                         ? {
                             dangerouslyBypassApprovalsAndSandbox:
@@ -715,7 +771,15 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                   }
                   immediate
                   className={inputClass}
-                  placeholder={adapterType === "codex_local" ? "codex" : "claude"}
+                  placeholder={
+                    adapterType === "codex_local"
+                      ? "codex"
+                      : adapterType === "cursor"
+                        ? "agent"
+                        : adapterType === "opencode_local"
+                          ? "opencode"
+                          : "claude"
+                  }
                 />
               </Field>
 
@@ -729,7 +793,17 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                 }
                 open={modelOpen}
                 onOpenChange={setModelOpen}
+                allowDefault={adapterType !== "opencode_local"}
+                required={adapterType === "opencode_local"}
+                groupByProvider={adapterType === "opencode_local"}
               />
+              {fetchedModelsError && (
+                <p className="text-xs text-destructive">
+                  {fetchedModelsError instanceof Error
+                    ? fetchedModelsError.message
+                    : "Failed to load adapter models."}
+                </p>
+              )}
 
               <ThinkingEffortDropdown
                 value={currentThinkingEffort}
@@ -1006,13 +1080,7 @@ function AdapterEnvironmentResult({ result }: { result: AdapterEnvironmentTestRe
 
 /* ---- Internal sub-components ---- */
 
-const ENABLED_ADAPTER_TYPES = new Set([
-  "claude_local",
-  "codex_local",
-  "openclaw",
-  "process",
-  "http",
-]);
+const ENABLED_ADAPTER_TYPES = new Set(["claude_local", "codex_local", "opencode_local", "cursor"]);
 
 /** Display list includes all real adapter types plus UI-only coming-soon entries. */
 const ADAPTER_DISPLAY_LIST: { value: string; label: string; comingSoon: boolean }[] = [
@@ -1021,7 +1089,6 @@ const ADAPTER_DISPLAY_LIST: { value: string; label: string; comingSoon: boolean 
     label: adapterLabels[t] ?? t,
     comingSoon: !ENABLED_ADAPTER_TYPES.has(t),
   })),
-  { value: "cursor", label: "Cursor", comingSoon: true },
 ];
 
 function HeartbeatGateModeDropdown({
@@ -1072,7 +1139,10 @@ function AdapterTypeDropdown({
     <Popover>
       <PopoverTrigger asChild>
         <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent/50 transition-colors w-full justify-between">
-          <span>{adapterLabels[value] ?? value}</span>
+          <span className="inline-flex items-center gap-1.5">
+            {value === "opencode_local" ? <OpenCodeLogoIcon className="h-3.5 w-3.5" /> : null}
+            <span>{adapterLabels[value] ?? value}</span>
+          </span>
           <ChevronDown className="h-3 w-3 text-muted-foreground" />
         </button>
       </PopoverTrigger>
@@ -1092,7 +1162,10 @@ function AdapterTypeDropdown({
               if (!item.comingSoon) onChange(item.value);
             }}
           >
-            <span>{item.label}</span>
+            <span className="inline-flex items-center gap-1.5">
+              {item.value === "opencode_local" ? <OpenCodeLogoIcon className="h-3.5 w-3.5" /> : null}
+              <span>{item.label}</span>
+            </span>
             {item.comingSoon && (
               <span className="text-[10px] text-muted-foreground">Coming soon</span>
             )}
@@ -1358,20 +1431,56 @@ function ModelDropdown({
   onChange,
   open,
   onOpenChange,
+  allowDefault,
+  required,
+  groupByProvider,
 }: {
   models: AdapterModel[];
   value: string;
   onChange: (id: string) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  allowDefault: boolean;
+  required: boolean;
+  groupByProvider: boolean;
 }) {
   const [modelSearch, setModelSearch] = useState("");
   const selected = models.find((m) => m.id === value);
-  const filteredModels = models.filter((m) => {
-    if (!modelSearch.trim()) return true;
-    const q = modelSearch.toLowerCase();
-    return m.id.toLowerCase().includes(q) || m.label.toLowerCase().includes(q);
-  });
+  const filteredModels = useMemo(() => {
+    return models.filter((m) => {
+      if (!modelSearch.trim()) return true;
+      const q = modelSearch.toLowerCase();
+      const provider = extractProviderId(m.id) ?? "";
+      return (
+        m.id.toLowerCase().includes(q) ||
+        m.label.toLowerCase().includes(q) ||
+        provider.toLowerCase().includes(q)
+      );
+    });
+  }, [models, modelSearch]);
+  const groupedModels = useMemo(() => {
+    if (!groupByProvider) {
+      return [
+        {
+          provider: "models",
+          entries: [...filteredModels].sort((a, b) => a.id.localeCompare(b.id)),
+        },
+      ];
+    }
+    const map = new Map<string, AdapterModel[]>();
+    for (const model of filteredModels) {
+      const provider = extractProviderId(model.id) ?? "other";
+      const group = map.get(provider) ?? [];
+      group.push(model);
+      map.set(provider, group);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([provider, entries]) => ({
+        provider,
+        entries: [...entries].sort((a, b) => a.id.localeCompare(b.id)),
+      }));
+  }, [filteredModels, groupByProvider]);
 
   return (
     <Field label="Model" hint={help.model}>
@@ -1385,7 +1494,9 @@ function ModelDropdown({
         <PopoverTrigger asChild>
           <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent/50 transition-colors w-full justify-between">
             <span className={cn(!value && "text-muted-foreground")}>
-              {selected ? selected.label : value || "Default"}
+              {selected
+                ? selected.label
+                : value || (allowDefault ? "Default" : required ? "Select model (required)" : "Select model")}
             </span>
             <ChevronDown className="h-3 w-3 text-muted-foreground" />
           </button>
@@ -1399,33 +1510,45 @@ function ModelDropdown({
             autoFocus
           />
           <div className="max-h-[240px] overflow-y-auto">
-            <button
-              className={cn(
-                "flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent/50",
-                !value && "bg-accent",
-              )}
-              onClick={() => {
-                onChange("");
-                onOpenChange(false);
-              }}
-            >
-              Default
-            </button>
-            {filteredModels.map((m) => (
+            {allowDefault && (
               <button
-                key={m.id}
                 className={cn(
-                  "flex items-center justify-between w-full px-2 py-1.5 text-sm rounded hover:bg-accent/50",
-                  m.id === value && "bg-accent",
+                  "flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent/50",
+                  !value && "bg-accent",
                 )}
                 onClick={() => {
-                  onChange(m.id);
+                  onChange("");
                   onOpenChange(false);
                 }}
               >
-                <span>{m.label}</span>
-                <span className="text-xs text-muted-foreground font-mono">{m.id}</span>
+                Default
               </button>
+            )}
+            {groupedModels.map((group) => (
+              <div key={group.provider} className="mb-1 last:mb-0">
+                {groupByProvider && (
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {group.provider} ({group.entries.length})
+                  </div>
+                )}
+                {group.entries.map((m) => (
+                  <button
+                    key={m.id}
+                    className={cn(
+                      "flex items-center w-full px-2 py-1.5 text-sm rounded hover:bg-accent/50",
+                      m.id === value && "bg-accent",
+                    )}
+                    onClick={() => {
+                      onChange(m.id);
+                      onOpenChange(false);
+                    }}
+                  >
+                    <span className="block w-full text-left truncate" title={m.id}>
+                      {groupByProvider ? extractModelName(m.id) : m.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
             ))}
             {filteredModels.length === 0 && (
               <p className="px-2 py-1.5 text-xs text-muted-foreground">No models found.</p>
