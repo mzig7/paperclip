@@ -1,12 +1,15 @@
 import { z } from "zod";
+import {
+  HEARTBEAT_GATE_DECISIONS,
+  HEARTBEAT_GATE_MODES,
+  type HeartbeatGateDecision,
+  type HeartbeatGateMode,
+} from "@paperclipai/shared";
 import { asNumber, parseObject } from "../adapters/utils.js";
 import { readConfigFile } from "../config-file.js";
 
-export const HEARTBEAT_GATE_MODES = ["off", "shadow", "enforce"] as const;
-export type HeartbeatGateMode = (typeof HEARTBEAT_GATE_MODES)[number];
-
-export const HEARTBEAT_GATE_DECISIONS = ["run_expensive_now", "not_now"] as const;
-export type HeartbeatGateDecisionValue = (typeof HEARTBEAT_GATE_DECISIONS)[number];
+export { HEARTBEAT_GATE_DECISIONS, HEARTBEAT_GATE_MODES };
+export type { HeartbeatGateDecision, HeartbeatGateMode };
 
 export interface HeartbeatGateConfig {
   mode: HeartbeatGateMode;
@@ -36,7 +39,7 @@ export interface HeartbeatGateInput {
 
 export interface HeartbeatGateEvaluation {
   mode: HeartbeatGateMode;
-  decision: HeartbeatGateDecisionValue | null;
+  decision: HeartbeatGateDecision | null;
   reasonCode: string | null;
   nextCheckHintSec: number | null;
   evaluatedAt: Date | null;
@@ -362,7 +365,7 @@ export function parseHeartbeatGateConfig(runtimeConfigRaw: unknown): HeartbeatGa
 export function sanitizeGateDecision(
   raw: unknown,
   maxNextCheckHintSec: number,
-): { decision: HeartbeatGateDecisionValue; reasonCode: string | null; nextCheckHintSec: number | null } {
+): { decision: HeartbeatGateDecision; reasonCode: string | null; nextCheckHintSec: number | null } {
   const parsed = gateDecisionSchema.safeParse(raw);
   if (!parsed.success) {
     return {
