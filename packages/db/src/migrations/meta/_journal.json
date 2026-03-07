@@ -173,15 +173,29 @@
     {
       "idx": 24,
       "version": "7",
-      "when": 1772748000000,
-      "tag": "0024_heartbeat_gate_and_wakeup_idempotency",
+      "when": 1772806603601,
+      "tag": "0024_far_beast",
       "breakpoints": true
     },
     {
       "idx": 25,
       "version": "7",
+      "when": 1772807461603,
+      "tag": "0025_nasty_salo",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1772748000000,
+      "tag": "0026_heartbeat_gate_and_wakeup_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
       "when": 1772751600000,
-      "tag": "0025_heartbeat_gate_model_telemetry",
+      "tag": "0027_heartbeat_gate_model_telemetry",
       "breakpoints": true
     }
   ]

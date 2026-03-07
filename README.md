@@ -218,7 +218,8 @@ By default, agents run on scheduled heartbeats and event-based triggers (task as
 ## Development
 
 ```bash
-pnpm dev              # Full dev (API + UI)
+pnpm dev              # Full dev (API + UI, watch mode)
+pnpm dev:once         # Full dev without file watching
 pnpm dev:server       # Server only
 pnpm build            # Build all
 pnpm typecheck        # Type checking
@@ -233,9 +234,13 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 
 ## Roadmap
 
-- 🛒 **Clipmart** — Download and share entire company architectures
-- 🧩 **Plugin System** — Embed custom plugins (e.g. Reporting, Knowledge Base) into Paperclip
-- ☁️ **Cloud Agent Adapters** — Add more adapters for cloud-hosted agents
+- ⚪ Get OpenClaw onboarding easier
+- ⚪ Get cloud agents working e.g. Cursor / e2b agents
+- ⚪ ClipMart - buy and sell entire agent companies
+- ⚪ Easy agent configurations / easier to understand
+- ⚪ Better support for harness engineering
+- ⚪ Plugin system (e.g. if you want to add a knowledgebase, custom tracing, queues, etc)
+- ⚪ Better docs
 
 <br/>
 
@@ -258,6 +263,10 @@ We welcome contributions. See the [contributing guide](CONTRIBUTING.md) for deta
 ## License
 
 MIT &copy; 2026 Paperclip
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=paperclipai/paperclip&type=date&legend=top-left)](https://www.star-history.com/?repos=paperclipai%2Fpaperclip&type=date&legend=top-left)
 
 <br/>
 
