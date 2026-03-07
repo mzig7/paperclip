@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, jsonb, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, jsonb, integer, index, uniqueIndex, boolean } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 import { agents } from "./agents.js";
 
@@ -17,6 +17,15 @@ export const agentWakeupRequests = pgTable(
     requestedByActorType: text("requested_by_actor_type"),
     requestedByActorId: text("requested_by_actor_id"),
     idempotencyKey: text("idempotency_key"),
+    gateDecision: text("gate_decision"),
+    gateReasonCode: text("gate_reason_code"),
+    gateNextCheckHintSec: integer("gate_next_check_hint_sec"),
+    gateMode: text("gate_mode"),
+    gateEvaluatedAt: timestamp("gate_evaluated_at", { withTimezone: true }),
+    gateModel: text("gate_model"),
+    gateFailureCode: text("gate_failure_code"),
+    gateUsedDefaultModel: boolean("gate_used_default_model").notNull().default(false),
+    expensiveRunLaunched: boolean("expensive_run_launched").notNull().default(false),
     runId: uuid("run_id"),
     requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
@@ -36,5 +45,8 @@ export const agentWakeupRequests = pgTable(
       table.requestedAt,
     ),
     agentRequestedIdx: index("agent_wakeup_requests_agent_requested_idx").on(table.agentId, table.requestedAt),
+    companyAgentIdempotencyUniqueIdx: uniqueIndex(
+      "agent_wakeup_requests_company_agent_idempotency_idx",
+    ).on(table.companyId, table.agentId, table.idempotencyKey),
   }),
 );

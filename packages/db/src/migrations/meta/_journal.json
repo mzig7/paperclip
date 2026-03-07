@@ -169,6 +169,20 @@
       "when": 1772139727599,
       "tag": "0023_fair_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1772748000000,
+      "tag": "0024_heartbeat_gate_and_wakeup_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1772751600000,
+      "tag": "0025_heartbeat_gate_model_telemetry",
+      "breakpoints": true
     }
   ]
 }

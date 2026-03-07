@@ -1,4 +1,6 @@
 import type {
+  HeartbeatGateDecision,
+  HeartbeatGateMode,
   HeartbeatInvocationSource,
   HeartbeatRunStatus,
   WakeupTriggerDetail,
@@ -97,6 +99,15 @@ export interface AgentWakeupRequest {
   requestedByActorType: "user" | "agent" | "system" | null;
   requestedByActorId: string | null;
   idempotencyKey: string | null;
+  gateDecision: HeartbeatGateDecision | null;
+  gateReasonCode: string | null;
+  gateNextCheckHintSec: number | null;
+  gateMode: HeartbeatGateMode | null;
+  gateEvaluatedAt: Date | null;
+  gateModel: string | null;
+  gateFailureCode: string | null;
+  gateUsedDefaultModel: boolean;
+  expensiveRunLaunched: boolean;
   runId: string | null;
   requestedAt: Date;
   claimedAt: Date | null;

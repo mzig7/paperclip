@@ -28,6 +28,10 @@ import { AgentConfigForm, type CreateConfigValues } from "./AgentConfigForm";
 import { defaultCreateValues } from "./agent-config-defaults";
 import { getUIAdapter } from "../adapters";
 import { AgentIcon } from "./AgentIconPicker";
+import {
+  buildCreateRuntimeConfig,
+  hasHeartbeatGateModelValidationError,
+} from "../lib/heartbeat-gate-config";
 
 export function NewAgentDialog() {
   const { newAgentOpen, closeNewAgent } = useDialog();
@@ -63,6 +67,7 @@ export function NewAgentDialog() {
 
   const isFirstAgent = !agents || agents.length === 0;
   const effectiveRole = isFirstAgent ? "ceo" : role;
+  const heartbeatGateModelError = hasHeartbeatGateModelValidationError(configValues);
 
   // Auto-fill for CEO
   useEffect(() => {
@@ -99,7 +104,7 @@ export function NewAgentDialog() {
   }
 
   function handleSubmit() {
-    if (!selectedCompanyId || !name.trim()) return;
+    if (!selectedCompanyId || !name.trim() || heartbeatGateModelError) return;
     createAgent.mutate({
       name: name.trim(),
       role: effectiveRole,
@@ -107,15 +112,13 @@ export function NewAgentDialog() {
       ...(reportsTo ? { reportsTo } : {}),
       adapterType: configValues.adapterType,
       adapterConfig: buildAdapterConfig(),
-      runtimeConfig: {
-        heartbeat: {
-          enabled: configValues.heartbeatEnabled,
+      runtimeConfig: buildCreateRuntimeConfig(
+        {
+          heartbeatEnabled: configValues.heartbeatEnabled,
           intervalSec: configValues.intervalSec,
-          wakeOnDemand: true,
-          cooldownSec: 10,
-          maxConcurrentRuns: 1,
         },
-      },
+        configValues,
+      ),
       budgetMonthlyCents: 0,
     });
   }
@@ -283,7 +286,7 @@ export function NewAgentDialog() {
           </span>
           <Button
             size="sm"
-            disabled={!name.trim() || createAgent.isPending}
+            disabled={!name.trim() || createAgent.isPending || heartbeatGateModelError}
             onClick={handleSubmit}
           >
             {createAgent.isPending ? "Creating…" : "Create agent"}

@@ -21,4 +21,8 @@ export const defaultCreateValues: CreateConfigValues = {
   maxTurnsPerRun: 80,
   heartbeatEnabled: false,
   intervalSec: 300,
+  heartbeatGateMode: "off",
+  heartbeatGateUseSeparateModel: false,
+  heartbeatGateModel: "",
+  heartbeatGateBaseUrl: "",
 };

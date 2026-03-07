@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AdapterEnvironmentTestResult } from "@paperclipai/shared";
+import type { HeartbeatGateMode } from "@paperclipai/shared";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { companiesApi } from "../api/companies";
@@ -26,6 +27,10 @@ import {
 import { AsciiArtAnimation } from "./AsciiArtAnimation";
 import { ChoosePathButton } from "./PathInstructionsModal";
 import { HintIcon } from "./agent-config-primitives";
+import {
+  buildCreateRuntimeConfig,
+  hasHeartbeatGateModelValidationError
+} from "../lib/heartbeat-gate-config";
 import {
   Building2,
   Bot,
@@ -85,6 +90,12 @@ export function OnboardingWizard() {
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
   const [url, setUrl] = useState("");
+  const [heartbeatGateMode, setHeartbeatGateMode] =
+    useState<HeartbeatGateMode>("off");
+  const [heartbeatGateUseSeparateModel, setHeartbeatGateUseSeparateModel] =
+    useState(false);
+  const [heartbeatGateModel, setHeartbeatGateModel] = useState("");
+  const [heartbeatGateBaseUrl, setHeartbeatGateBaseUrl] = useState("");
   const [adapterEnvResult, setAdapterEnvResult] =
     useState<AdapterEnvironmentTestResult | null>(null);
   const [adapterEnvError, setAdapterEnvError] = useState<string | null>(null);
@@ -151,6 +162,12 @@ export function OnboardingWizard() {
     adapterType === "claude_local" || adapterType === "codex_local";
   const effectiveAdapterCommand =
     command.trim() || (adapterType === "codex_local" ? "codex" : "claude");
+  const heartbeatGateModelError = hasHeartbeatGateModelValidationError({
+    heartbeatGateMode,
+    heartbeatGateUseSeparateModel,
+    heartbeatGateModel,
+    heartbeatGateBaseUrl
+  });
 
   useEffect(() => {
     if (step !== 2) return;
@@ -173,6 +190,10 @@ export function OnboardingWizard() {
     setCommand("");
     setArgs("");
     setUrl("");
+    setHeartbeatGateMode("off");
+    setHeartbeatGateUseSeparateModel(false);
+    setHeartbeatGateModel("");
+    setHeartbeatGateBaseUrl("");
     setAdapterEnvResult(null);
     setAdapterEnvError(null);
     setAdapterEnvLoading(false);
@@ -208,6 +229,26 @@ export function OnboardingWizard() {
           ? DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX
           : defaultCreateValues.dangerouslyBypassSandbox
     });
+  }
+
+  function updateHeartbeatGateMode(nextMode: HeartbeatGateMode) {
+    setHeartbeatGateMode(nextMode);
+    if (nextMode === "off") {
+      setHeartbeatGateUseSeparateModel(false);
+      setHeartbeatGateModel("");
+      setHeartbeatGateBaseUrl("");
+    }
+  }
+
+  function updateHeartbeatGateSeparateModel(enabled: boolean) {
+    setHeartbeatGateUseSeparateModel(enabled);
+    setHeartbeatGateMode((current) =>
+      enabled ? (current === "off" ? "shadow" : current) : "off"
+    );
+    if (!enabled) {
+      setHeartbeatGateModel("");
+      setHeartbeatGateBaseUrl("");
+    }
   }
 
   async function runAdapterEnvironmentTest(): Promise<AdapterEnvironmentTestResult | null> {
@@ -270,6 +311,12 @@ export function OnboardingWizard() {
 
   async function handleStep2Next() {
     if (!createdCompanyId) return;
+    if (heartbeatGateModelError) {
+      setError(
+        "Enter a heartbeat model name or disable the local heartbeat model toggle."
+      );
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -289,15 +336,18 @@ export function OnboardingWizard() {
         role: "ceo",
         adapterType,
         adapterConfig: buildAdapterConfig(),
-        runtimeConfig: {
-          heartbeat: {
-            enabled: true,
-            intervalSec: 3600,
-            wakeOnDemand: true,
-            cooldownSec: 10,
-            maxConcurrentRuns: 1
+        runtimeConfig: buildCreateRuntimeConfig(
+          {
+            heartbeatEnabled: true,
+            intervalSec: 3600
+          },
+          {
+            heartbeatGateMode,
+            heartbeatGateUseSeparateModel,
+            heartbeatGateModel,
+            heartbeatGateBaseUrl
           }
-        }
+        )
       });
       setCreatedAgentId(agent.id);
       queryClient.invalidateQueries({
@@ -504,8 +554,7 @@ export function OnboardingWizard() {
                           value: "openclaw" as const,
                           label: "OpenClaw",
                           icon: Bot,
-                          desc: "Notify OpenClaw webhook",
-                          comingSoon: true
+                          desc: "Notify OpenClaw webhook"
                         },
                         {
                           value: "cursor" as const,
@@ -518,15 +567,13 @@ export function OnboardingWizard() {
                           value: "process" as const,
                           label: "Shell Command",
                           icon: Terminal,
-                          desc: "Run a process",
-                          comingSoon: true
+                          desc: "Run a process"
                         },
                         {
                           value: "http" as const,
                           label: "HTTP Webhook",
                           icon: Globe,
-                          desc: "Call an endpoint",
-                          comingSoon: true
+                          desc: "Call an endpoint"
                         }
                       ].map((opt) => (
                         <button
@@ -742,6 +789,115 @@ export function OnboardingWizard() {
                       />
                     </div>
                   )}
+
+                  <div className="space-y-3 rounded-md border border-border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">
+                          Use local heartbeat model
+                        </span>
+                        <HintIcon text="Use a local model and optional OpenAI-compatible base URL for heartbeat gate decisions." />
+                      </div>
+                      <button
+                        type="button"
+                        className={cn(
+                          "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                          heartbeatGateUseSeparateModel
+                            ? "bg-green-600"
+                            : "bg-muted"
+                        )}
+                        onClick={() =>
+                          updateHeartbeatGateSeparateModel(
+                            !heartbeatGateUseSeparateModel
+                          )
+                        }
+                      >
+                        <span
+                          className={cn(
+                            "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                            heartbeatGateUseSeparateModel
+                              ? "translate-x-4.5"
+                              : "translate-x-0.5"
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    {heartbeatGateUseSeparateModel && (
+                        <>
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <label className="text-xs text-muted-foreground">
+                                Heartbeat gate mode
+                              </label>
+                              <HintIcon text="Control whether the heartbeat gate is disabled, observes in shadow mode, or actively enforces deferrals." />
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                              {([
+                                ["off", "Off"],
+                                ["shadow", "Shadow"],
+                                ["enforce", "Enforce"]
+                              ] as const).map(([value, label]) => (
+                                <button
+                                  key={value}
+                                  type="button"
+                                  className={cn(
+                                    "rounded-md border px-2 py-2 text-xs transition-colors",
+                                    heartbeatGateMode === value
+                                      ? "border-foreground bg-accent"
+                                      : "border-border hover:bg-accent/50"
+                                  )}
+                                  onClick={() =>
+                                    updateHeartbeatGateMode(value as HeartbeatGateMode)
+                                  }
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <label className="text-xs text-muted-foreground">
+                                Heartbeat model name
+                              </label>
+                              <HintIcon text="Model name used by the heartbeat gate when separate model routing is enabled." />
+                            </div>
+                            <input
+                              className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm font-mono outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+                              placeholder="e.g. gpt-4o-mini"
+                              value={heartbeatGateModel}
+                              onChange={(e) =>
+                                setHeartbeatGateModel(e.target.value)
+                              }
+                            />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <label className="text-xs text-muted-foreground">
+                                Heartbeat base URL
+                              </label>
+                              <HintIcon text="Optional OpenAI-compatible base URL for the heartbeat gate, such as LM Studio or another local endpoint." />
+                            </div>
+                            <input
+                              className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm font-mono outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+                              placeholder="Optional, e.g. http://localhost:1234"
+                              value={heartbeatGateBaseUrl}
+                              onChange={(e) =>
+                                setHeartbeatGateBaseUrl(e.target.value)
+                              }
+                            />
+                          </div>
+                        </>
+                      )}
+
+                    {heartbeatGateModelError && (
+                      <p className="text-[11px] text-destructive">
+                        Enter a heartbeat model name or turn off the separate
+                        local heartbeat model toggle.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -878,7 +1034,10 @@ export function OnboardingWizard() {
                     <Button
                       size="sm"
                       disabled={
-                        !agentName.trim() || loading || adapterEnvLoading
+                        !agentName.trim() ||
+                        loading ||
+                        adapterEnvLoading ||
+                        heartbeatGateModelError
                       }
                       onClick={handleStep2Next}
                     >
