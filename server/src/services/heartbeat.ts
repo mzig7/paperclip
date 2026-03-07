@@ -58,7 +58,7 @@ import { redactCurrentUserText, redactCurrentUserValue } from "../log-redaction.
 import {
   evaluateHeartbeatGate,
   parseHeartbeatGateConfig,
-  type HeartbeatGateDecisionValue,
+  type HeartbeatGateDecision,
   type HeartbeatGateMode,
 } from "./heartbeat-gate.js";
 import {
@@ -186,7 +186,7 @@ const heartbeatRunListColumns = {
 const WAKEUP_IDEMPOTENCY_UNIQUE_IDX = "agent_wakeup_requests_company_agent_idempotency_idx";
 const OPEN_ISSUE_STATUSES = ["todo", "in_progress", "blocked"];
 
-type GateDecisionForWrite = HeartbeatGateDecisionValue | null;
+type GateDecisionForWrite = HeartbeatGateDecision | null;
 type GateModeForWrite = HeartbeatGateMode | null;
 type HeartbeatWakeSource = "timer" | "assignment" | "on_demand" | "automation";
 
@@ -252,7 +252,7 @@ export interface DeterministicHeartbeatGateInput {
 
 export function deriveDeterministicHeartbeatGateDecision(
   input: DeterministicHeartbeatGateInput,
-): { decision: HeartbeatGateDecisionValue; reasonCode: string } | null {
+): { decision: HeartbeatGateDecision; reasonCode: string } | null {
   if (input.source !== "timer") {
     return {
       decision: "run_expensive_now",
