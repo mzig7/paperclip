@@ -51,6 +51,10 @@ describe("buildInviteOnboardingTextDocument", () => {
     expect(text).toContain("set the first reachable candidate as agentDefaultsPayload.paperclipApiUrl");
     expect(text).toContain("~/.openclaw/workspace/paperclip-claimed-api-key.json");
     expect(text).toContain("PAPERCLIP_API_KEY");
+    expect(text).toContain("/api/skills/openclaw-paperclip-dispatch");
+    expect(text).toContain("~/.openclaw/skills/openclaw-paperclip-dispatch/SKILL.md");
+    expect(text).toContain("PAPERCLIP_REPO_DIR");
+    expect(text).toContain("sync-aliases.mjs");
     expect(text).toContain("saved token field");
     expect(text).toContain("Gateway token unexpectedly short");
   });

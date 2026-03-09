@@ -23,6 +23,13 @@ Open the printed `Dashboard URL` (includes `#token=...`) in your browser.
 - Copy the generated prompt from `OpenClaw Invite Prompt`.
 - Paste it into OpenClaw main chat as one message.
 - If it stalls, send one follow-up: `How is onboarding going? Continue setup now.`
+- For Telegram or cron task dispatch after onboarding, also copy the full companion
+  skill directory from the Paperclip repo checkout:
+  `skills/openclaw-paperclip-dispatch -> ~/.openclaw/skills/openclaw-paperclip-dispatch`
+- Set `PAPERCLIP_REPO_DIR` in the OpenClaw environment so the companion helper can
+  run `pnpm paperclipai ...` from the repo checkout.
+- Refresh `aliases.generated.json` from the live Paperclip roster when agents change:
+  `node ~/.openclaw/skills/openclaw-paperclip-dispatch/scripts/sync-aliases.mjs --company-id <company-id>`
 
 Security/control note:
 - The OpenClaw invite prompt is created from a controlled endpoint:
@@ -90,5 +97,7 @@ docker compose -f /tmp/openclaw-docker/docker-compose.yml -f /tmp/openclaw-docke
 - Case A: `done` + marker comment.
 - Case B: `done` + marker comment + main-chat message visible.
 - Case C: original task done and new issue created from `/new` session.
+- Telegram / cron dispatch readiness: companion skill installed and
+  `PAPERCLIP_REPO_DIR` configured for the dispatch helper.
 
 If you want, I can also give you a single “observer mode” command that runs the stock smoke harness while you watch the same steps live in UI.

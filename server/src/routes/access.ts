@@ -97,8 +97,12 @@ function requestBaseUrl(req: Request) {
 
 function readSkillMarkdown(skillName: string): string | null {
   const normalized = skillName.trim().toLowerCase();
-  if (normalized !== "paperclip" && normalized !== "paperclip-create-agent")
-    return null;
+  const supportedSkills = new Set([
+    "paperclip",
+    "openclaw-paperclip-dispatch",
+    "paperclip-create-agent"
+  ]);
+  if (!supportedSkills.has(normalized)) return null;
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
     path.resolve(moduleDir, "../../skills", normalized, "SKILL.md"), // published: dist/routes/ -> <pkg>/skills/
@@ -906,6 +910,10 @@ function buildInviteOnboardingManifest(
   const baseUrl = requestBaseUrl(req);
   const skillPath = "/api/skills/paperclip";
   const skillUrl = baseUrl ? `${baseUrl}${skillPath}` : skillPath;
+  const dispatchSkillPath = "/api/skills/openclaw-paperclip-dispatch";
+  const dispatchSkillUrl = baseUrl
+    ? `${baseUrl}${dispatchSkillPath}`
+    : dispatchSkillPath;
   const registrationEndpointPath = `/api/invites/${token}/accept`;
   const registrationEndpointUrl = baseUrl
     ? `${baseUrl}${registrationEndpointPath}`
@@ -931,7 +939,7 @@ function buildInviteOnboardingManifest(
     invite: toInviteSummaryResponse(req, token, invite),
     onboarding: {
       instructions:
-        "Join as an OpenClaw Gateway agent, save your one-time claim secret, wait for board approval, then claim your API key. Save the claim response token to ~/.openclaw/workspace/paperclip-claimed-api-key.json and load PAPERCLIP_API_KEY from that file before starting heartbeat loops. You MUST submit adapterType='openclaw_gateway', set agentDefaultsPayload.url to your ws:// or wss:// OpenClaw gateway endpoint, and include agentDefaultsPayload.headers.x-openclaw-token (or legacy x-openclaw-auth).",
+        "Join as an OpenClaw Gateway agent, save your one-time claim secret, wait for board approval, then claim your API key. Save the claim response token to ~/.openclaw/workspace/paperclip-claimed-api-key.json and load PAPERCLIP_API_KEY from that file before starting heartbeat loops. You MUST submit adapterType='openclaw_gateway', set agentDefaultsPayload.url to your ws:// or wss:// OpenClaw gateway endpoint, and include agentDefaultsPayload.headers.x-openclaw-token (or legacy x-openclaw-auth). For Telegram or cron task dispatch, also install the companion openclaw-paperclip-dispatch skill directory from the Paperclip repo checkout.",
       inviteMessage: extractInviteMessage(invite),
       recommendedAdapterType: "openclaw_gateway",
       requiredFields: {
@@ -1161,6 +1169,24 @@ export function buildInviteOnboardingTextDocument(
     Install path: ${onboarding.skill.installPath}
 
     Be sure to prepend your PAPERCLIP_API_URL to the top of your skill and note the path to your PAPERCLIP_API_URL
+
+    ## Step 4b: Install companion dispatch skill for Telegram / cron
+    Reference markdown:
+    GET ${dispatchSkillUrl}
+    Expected install path:
+    - ~/.openclaw/skills/openclaw-paperclip-dispatch/SKILL.md
+
+    IMPORTANT:
+    - The dispatch skill needs its bundled helper script, not just the markdown.
+    - Copy the full directory from the Paperclip repo checkout:
+      skills/openclaw-paperclip-dispatch -> ~/.openclaw/skills/openclaw-paperclip-dispatch
+    - Set PAPERCLIP_REPO_DIR to that Paperclip repo checkout so the helper can run:
+      pnpm paperclipai ...
+    - Refresh aliases.generated.json from the live Paperclip agent roster whenever
+      the roster changes:
+      node ~/.openclaw/skills/openclaw-paperclip-dispatch/scripts/sync-aliases.mjs --company-id <company-id>
+    - Use this companion skill only for Telegram / cron task dispatch. Keep the main
+      paperclip skill installed for normal heartbeat behavior.
 
     ## Text onboarding URL
     ${onboarding.textInstructions.url}
@@ -1610,6 +1636,10 @@ export function accessRoutes(
     res.json({
       skills: [
         { name: "paperclip", path: "/api/skills/paperclip" },
+        {
+          name: "openclaw-paperclip-dispatch",
+          path: "/api/skills/openclaw-paperclip-dispatch"
+        },
         {
           name: "paperclip-create-agent",
           path: "/api/skills/paperclip-create-agent"
