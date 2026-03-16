@@ -28,6 +28,7 @@ import {
 import { getUIAdapter } from "../adapters";
 import { defaultCreateValues } from "./agent-config-defaults";
 import { parseOnboardingGoalInput } from "../lib/onboarding-goal";
+import { HintIcon } from "./agent-config-primitives";
 import {
   buildOnboardingIssuePayload,
   buildOnboardingProjectPayload,
@@ -61,7 +62,8 @@ import {
   Check,
   Loader2,
   ChevronDown,
-  X
+  X,
+  Globe,
 } from "lucide-react";
 
 type Step = 1 | 2 | 3 | 4;
@@ -822,7 +824,7 @@ export function OnboardingWizard() {
                           recommended: true
                         },
                         {
-                          value: "openclaw" as const,
+                          value: "openclaw_gateway" as const,
                           label: "OpenClaw",
                           icon: Bot,
                           desc: "Notify OpenClaw webhook"

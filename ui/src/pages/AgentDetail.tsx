@@ -71,6 +71,7 @@ import {
   ArrowLeft,
   HelpCircle,
   FolderOpen,
+  Settings,
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -595,7 +596,7 @@ export function AgentDetail() {
 
   const assignedIssues = (allIssues ?? [])
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  const reportsToAgent = (allAgents ?? []).find((a) => a.id === agent?.reportsTo);
+  const reportsToAgent = (allAgents ?? []).find((a) => a.id === agent?.reportsTo) ?? null;
   const directReports = (allAgents ?? []).filter((a) => a.reportsTo === agent?.id && a.status !== "terminated");
   const agentBudgetSummary = useMemo(() => {
     const matched = budgetOverview?.policies.find(
@@ -994,6 +995,8 @@ export function AgentDetail() {
           runtimeState={runtimeState}
           agentId={agent.id}
           agentRouteId={canonicalAgentRef}
+          reportsToAgent={reportsToAgent}
+          directReports={directReports}
         />
       )}
 
@@ -1142,6 +1145,8 @@ function AgentOverview({
   runtimeState,
   agentId,
   agentRouteId,
+  reportsToAgent,
+  directReports,
 }: {
   agent: AgentDetailRecord;
   runs: HeartbeatRun[];
@@ -1149,6 +1154,8 @@ function AgentOverview({
   runtimeState?: AgentRuntimeState;
   agentId: string;
   agentRouteId: string;
+  reportsToAgent: Agent | null;
+  directReports: Agent[];
 }) {
   return (
     <div className="space-y-8">
