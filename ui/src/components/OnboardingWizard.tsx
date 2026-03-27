@@ -814,14 +814,16 @@ export function OnboardingWizard() {
                           label: "Claude Code",
                           icon: Sparkles,
                           desc: "Local Claude agent",
-                          recommended: true
+                          recommended: true,
+                          comingSoon: false
                         },
                         {
                           value: "codex_local" as const,
                           label: "Codex",
                           icon: Code,
                           desc: "Local Codex agent",
-                          recommended: true
+                          recommended: true,
+                          comingSoon: false
                         },
                         {
                           value: "openclaw_gateway" as const,
