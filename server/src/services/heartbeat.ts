@@ -3566,14 +3566,6 @@ export function heartbeatService(db: Db) {
     const replayed = await replayExisting();
     if (replayed !== undefined) return replayed;
 
-    const replayExisting = async () => {
-      if (!idempotencyKey) return undefined;
-      return replayWakeupForIdempotency(agent.companyId, agentId, idempotencyKey);
-    };
-
-    const replayed = await replayExisting();
-    if (replayed !== undefined) return replayed;
-
     if (
       agent.status === "paused" ||
       agent.status === "terminated" ||
