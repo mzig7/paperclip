@@ -28,6 +28,9 @@ Before making changes, read in this order:
 - `ui/`: React + Vite board UI
 - `packages/db/`: Drizzle schema, migrations, DB clients
 - `packages/shared/`: shared types, constants, validators, API path constants
+- `packages/adapters/`: agent adapter implementations (Claude, Codex, Cursor, etc.)
+- `packages/adapter-utils/`: shared adapter utilities
+- `packages/plugins/`: plugin system packages
 - `doc/`: operational and product docs
 
 ## 4. Dev Setup (Auto DB)
@@ -104,6 +107,9 @@ Prefer adapter/config-level extensions over broad orchestration rewrites. New be
 
 6. Heartbeat model split policy for Dev Studio.
 Lightweight local models are acceptable for heartbeat triage/routing. Heavy implementation tasks should run on stronger models. Keep triage/execution decisions visible in run logs and activity trails.
+
+7. Keep plan docs dated and centralized.
+New plan documents belong in `doc/plans/` and should use `YYYY-MM-DD-slug.md` filenames.
 
 ## 6. Database Change Workflow
 
