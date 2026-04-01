@@ -1,0 +1,125 @@
+schema: paperclip/v1
+
+# ============================================================
+# Zigs Capital — Paperclip Vendor Extension
+# ============================================================
+# This file declares adapter config and env input requirements
+# for all agents in the company. It contains NO actual secrets.
+#
+# After importing this company package on the Mac Mini, set the
+# actual secret values in the Paperclip UI or via adapter config API.
+#
+# Required secrets to provision:
+#   ALPHA_VANTAGE_API_KEY  — from https://www.alphavantage.co/support/#api-key
+#   DATABASE_URL           — Neon Postgres connection string
+#   EXA_API_KEY            — from https://exa.ai/dashboard
+#   NOTION_API_KEY         — from https://www.notion.so/my-integrations
+# ============================================================
+
+agents:
+  # ---- CEO (Portfolio Manager) --------------------------------
+  ceo:
+    adapter:
+      type: codex_local
+      config:
+        model: codex-mini
+    inputs:
+      env:
+        DATABASE_URL:
+          kind: secret
+          requirement: required
+        NOTION_API_KEY:
+          kind: secret
+          requirement: required
+
+  # ---- Fundamentals Analyst -----------------------------------
+  fundamentals-analyst:
+    adapter:
+      type: opencode_local
+    inputs:
+      env:
+        ALPHA_VANTAGE_API_KEY:
+          kind: secret
+          requirement: required
+        DATABASE_URL:
+          kind: secret
+          requirement: required
+        EXA_API_KEY:
+          kind: secret
+          requirement: required
+
+  # ---- Buffett Analyst ----------------------------------------
+  buffett-analyst:
+    adapter:
+      type: opencode_local
+    inputs:
+      env:
+        ALPHA_VANTAGE_API_KEY:
+          kind: secret
+          requirement: required
+        DATABASE_URL:
+          kind: secret
+          requirement: required
+        EXA_API_KEY:
+          kind: secret
+          requirement: required
+
+  # ---- Growth Analyst -----------------------------------------
+  growth-analyst:
+    adapter:
+      type: opencode_local
+    inputs:
+      env:
+        ALPHA_VANTAGE_API_KEY:
+          kind: secret
+          requirement: required
+        DATABASE_URL:
+          kind: secret
+          requirement: required
+        EXA_API_KEY:
+          kind: secret
+          requirement: required
+
+  # ---- Sentiment Analyst --------------------------------------
+  sentiment-analyst:
+    adapter:
+      type: opencode_local
+    inputs:
+      env:
+        ALPHA_VANTAGE_API_KEY:
+          kind: secret
+          requirement: required
+        DATABASE_URL:
+          kind: secret
+          requirement: required
+        EXA_API_KEY:
+          kind: secret
+          requirement: required
+
+  # ---- Technical Analyst --------------------------------------
+  technical-analyst:
+    adapter:
+      type: opencode_local
+    inputs:
+      env:
+        ALPHA_VANTAGE_API_KEY:
+          kind: secret
+          requirement: required
+        DATABASE_URL:
+          kind: secret
+          requirement: required
+
+  # ---- Risk Manager -------------------------------------------
+  risk-manager:
+    adapter:
+      type: codex_local
+      config:
+        model: codex-mini
+    inputs:
+      env:
+        ALPHA_VANTAGE_API_KEY:
+          kind: secret
+          requirement: required
+        DATABASE_URL:
+          kind: secret
+          requirement: required
